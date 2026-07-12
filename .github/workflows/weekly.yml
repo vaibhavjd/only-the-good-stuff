@@ -25,16 +25,33 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Write config from secret
+      - name: Write config from secrets
         env:
           TMDB_BEARER: ${{ secrets.TMDB_BEARER }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           python - <<'PY'
           import json, os
           key = os.environ.get("TMDB_BEARER", "").strip()   # strip stray newline/space
-          json.dump({"tmdb_bearer": key, "recent_years": 2}, open("config.json", "w"))
-          print("config written; TMDB key present:", bool(key), "len:", len(key))
+          cfg = {"tmdb_bearer": key, "recent_years": 2,
+                 "supabase_url": os.environ.get("SUPABASE_URL", "").strip(),
+                 "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", "").strip()}
+          json.dump(cfg, open("config.json", "w"))
+          print("config written; TMDB key:", bool(key), "| supabase:", bool(cfg["supabase_url"]))
           PY
+
+      - name: Keep Supabase awake (free tier pauses after ~7 idle days)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ]; then
+            curl -s -o /dev/null -w "supabase ping: HTTP %{http_code}\n" \
+              "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY" || true
+          else
+            echo "supabase not configured - skipping"
+          fi
 
       - name: Build the site (digest + sentiment + browse + landing)
         run: python movie_finder.py site

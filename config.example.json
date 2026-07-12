@@ -9,6 +9,10 @@
   "telegram_chat_id": "",
   "_telegram_help": "Optional push-to-phone. In Telegram, message @BotFather -> /newbot to get a token. Then message @userinfobot to get your numeric chat id. Paste both here and the digest is sent to you every run.",
 
+  "supabase_url": "",
+  "supabase_anon_key": "",
+  "_supabase_help": "Optional cloud profiles + Google sign-in on the browse page. Create a free project at supabase.com, run the SQL from the README, enable the Google auth provider, then paste the project URL (https://<ref>.supabase.co) and the anon/publishable key here (and as SUPABASE_URL / SUPABASE_ANON_KEY GitHub secrets for the deployed site). The anon key is public by design - data is protected by row-level security.",
+
   "rating_threshold": 6.5,
   "recent_years": 2,
   "vote_floor_min": 500,

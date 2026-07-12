@@ -220,6 +220,57 @@ Notes:
 - GitHub disables scheduled workflows after ~60 days with no repo commits — push a small
   change (or hit "Run workflow") occasionally to keep it alive.
 
+## Cloud profiles + Google sign-in (optional)
+
+By default, likes/saves live in each browser (localStorage). To let family members
+**sign in with Google and sync their profile across devices**, wire up a free
+Supabase project. The feature auto-hides until configured, so this is fully optional.
+
+**One-time setup:**
+
+1. **Create the project**: [supabase.com](https://supabase.com) → New project (free tier).
+   Note your **Project URL** (`https://<ref>.supabase.co`) and **anon/publishable key**
+   (Settings → API).
+
+2. **Create the table** — SQL Editor → paste + run:
+   ```sql
+   create table if not exists public.taste (
+     user_id uuid primary key references auth.users(id) on delete cascade,
+     display_name text,
+     data jsonb not null default '{}'::jsonb,
+     updated_at timestamptz not null default now()
+   );
+   alter table public.taste enable row level security;
+   create policy "own row select" on public.taste for select using (auth.uid() = user_id);
+   create policy "own row insert" on public.taste for insert with check (auth.uid() = user_id);
+   create policy "own row update" on public.taste for update using (auth.uid() = user_id);
+   ```
+
+3. **Google OAuth client**: [console.cloud.google.com](https://console.cloud.google.com)
+   → new project → *APIs & Services → OAuth consent screen* (External; add your family's
+   Gmail addresses as **test users**) → *Credentials → Create credentials → OAuth client ID*
+   → type **Web application** → under **Authorized redirect URIs** add:
+   `https://<ref>.supabase.co/auth/v1/callback` → copy the **Client ID** and **Client secret**.
+
+4. **Enable the provider**: Supabase → Authentication → Providers → **Google** → paste
+   Client ID + secret → save.
+
+5. **Set the redirect allow-list**: Supabase → Authentication → URL Configuration →
+   **Site URL** = `https://<user>.github.io/movie-finder/` and add
+   `https://<user>.github.io/movie-finder/browse.html` under Additional Redirect URLs.
+
+6. **Give the site the keys**: repo Settings → Secrets and variables → Actions → add
+   **`SUPABASE_URL`** and **`SUPABASE_ANON_KEY`** (the anon key is public by design —
+   row-level security is what protects the data). For local builds, put the same two
+   values in `config.json`. Re-run the workflow.
+
+Each family member then taps **Sign in with Google** on the browse page — their
+likes/seen/saved sync to the cloud and follow them to any device. Existing guest-profile
+data is adopted into their account on first login. The weekly build pings Supabase to
+keep the free project from pausing (it sleeps after ~7 idle days otherwise).
+
+> Note: Google sign-in works on the deployed site (https), not on a local `file://` preview.
+
 ## Important: licensing
 
 The IMDb datasets are free for **personal, non-commercial** use only, and IMDb

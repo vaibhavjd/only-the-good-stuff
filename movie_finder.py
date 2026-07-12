@@ -95,6 +95,8 @@ DEFAULTS = {
     "browse_workers": 8,       # concurrent TMDB lookups when building the catalog
     "sentiment_cap": 1500,     # (sentiment) how many top-voted films to fetch reviews for
     "sentiment_reviews": 25,   # (sentiment) max reviews analyzed per film
+    "supabase_url": "",        # optional: cloud profiles + Google sign-in (https://<ref>.supabase.co)
+    "supabase_anon_key": "",   # optional: Supabase anon/publishable key (public by design, guarded by RLS)
     "tmdb_api_key": "",        # optional (v3 key)
     "tmdb_bearer": "",         # optional (v4 read access token) - takes precedence
     "telegram_bot_token": "",  # optional
@@ -1286,7 +1288,8 @@ def build_browse(con, cfg, all_time=True):
     years = [f["y"] for f in films if f["y"]] or [cur_year]
     meta = {"count": len(films), "date": date.today().isoformat(), "all_time": all_time,
             "cur_year": cur_year, "year_min": min(years), "year_max": max(years),
-            "threshold": cfg["rating_threshold"]}
+            "threshold": cfg["rating_threshold"],
+            "supa_url": cfg.get("supabase_url", ""), "supa_key": cfg.get("supabase_anon_key", "")}
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, "browse.html")
     with open(path, "w", encoding="utf-8") as f:
@@ -1316,12 +1319,15 @@ def render_browse_html(films, plat_count, lang_count, meta):
             .replace("__DATE__", meta["date"])
             .replace("__YEARMIN__", str(meta["year_min"]))
             .replace("__YEARMAX__", str(meta["year_max"]))
-            .replace("__THRESH__", str(meta["threshold"])))
+            .replace("__THRESH__", str(meta["threshold"]))
+            .replace("__SUPA_URL__", meta.get("supa_url", ""))
+            .replace("__SUPA_KEY__", meta.get("supa_key", "")))
 
 
 BROWSE_TEMPLATE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Movie Finder - Browse</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#f6f6f8;--card:#fff;--ink:#1b1d22;--muted:#5c616c;--faint:#8a8f9a;--line:#e4e5eb;
 --accent:#a3172e;--accent-soft:#fbeef0;--good:#12452b;--good-bg:#e5f4ec;--chipbg:#eeeef2;}
@@ -1403,6 +1409,9 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   <button id="newp" class="mini">+ New profile</button>
   <button id="renp" class="mini">Rename</button>
   <button id="delp" class="mini">Delete</button>
+  <button id="gsin" class="mini" hidden>Sign in with Google</button>
+  <span id="whoami" class="tastesum"></span>
+  <button id="gsout" class="mini" hidden>Sign out</button>
   <span id="tastesum" class="tastesum"></span>
 </div>
 <div class="controls">
@@ -1454,9 +1463,36 @@ function lset(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 let PROFILES=lget("mf_profiles",["Me"]);
 let ACTIVE=lget("mf_active","Me");
 if(!PROFILES.includes(ACTIVE)){ACTIVE=PROFILES[0]||"Me";}
-function dkey(){return "mf_data_"+ACTIVE;}
+
+/* ---- optional cloud sync (Supabase + Google sign-in) ---- */
+const SUPA_URL="__SUPA_URL__",SUPA_KEY="__SUPA_KEY__";
+let sb=null,CLOUD=null,pushT=null;
+try{if(SUPA_URL.indexOf("http")===0&&SUPA_KEY&&typeof supabase!=="undefined"){sb=supabase.createClient(SUPA_URL,SUPA_KEY);}}catch(e){}
+function dkey(){return CLOUD?("mf_data_cloud_"+CLOUD.id):("mf_data_"+ACTIVE);}
 let U=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
-function saveU(){lset(dkey(),U);}
+function cloudPush(){if(!sb||!CLOUD)return;clearTimeout(pushT);
+  pushT=setTimeout(async()=>{try{await sb.from("taste").upsert(
+    {user_id:CLOUD.id,display_name:CLOUD.name,data:U,updated_at:new Date().toISOString()});}catch(e){}},1200);}
+function saveU(){lset(dkey(),U);cloudPush();}
+function mergeData(local,cloud){const out={like:{},dislike:{},seen:{},save:{}};
+  ["like","dislike","seen","save"].forEach(k=>Object.assign(out[k],(cloud&&cloud[k])||{},(local&&local[k])||{}));
+  Object.keys(out.like).forEach(t=>{delete out.dislike[t];});return out;}
+function renderAuthUI(){const on=!!CLOUD;
+  ["#profile","#newp","#renp","#delp"].forEach(s=>{const e=$(s);if(e)e.hidden=on;});
+  $("#gsin").hidden=on||!sb;$("#gsout").hidden=!on;
+  $("#whoami").textContent=on?("Syncing as "+(CLOUD.name||CLOUD.email||"you")):"";}
+async function cloudLogin(user){
+  CLOUD={id:user.id,email:user.email,
+    name:(user.user_metadata&&(user.user_metadata.full_name||user.user_metadata.name))||user.email};
+  let cloud=null;
+  try{const r=await sb.from("taste").select("data").eq("user_id",CLOUD.id).maybeSingle();
+    cloud=r&&r.data&&r.data.data;}catch(e){}
+  const cache=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
+  const guest=cloud?null:lget("mf_data_"+ACTIVE,{like:{},dislike:{},seen:{},save:{}}); // adopt guest data on first login
+  U=mergeData(mergeData(cache,guest),cloud);
+  saveU();renderAuthUI();computeTaste();updateSummary();if(hasTaste())setSort("foryou");apply();}
+function cloudLogout(){CLOUD=null;U=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
+  renderAuthUI();computeTaste();updateSummary();apply();}
 
 /* ---- taste model (content-based over genre / language / decade) ---- */
 let taste={g:{},l:{},d:{}};
@@ -1596,6 +1632,16 @@ function filterCount(){let n=0;
 let fOpen=(typeof window!=="undefined"&&window.innerWidth>=760);   // collapsed by default on phones
 $("#fpanel").hidden=!fOpen;
 $("#fbtn").addEventListener("click",()=>{fOpen=!fOpen;$("#fpanel").hidden=!fOpen;});
+$("#gsin").addEventListener("click",()=>{if(!sb)return;
+  sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});});
+$("#gsout").addEventListener("click",async()=>{try{await sb.auth.signOut();}catch(e){}cloudLogout();});
+if(sb){
+  sb.auth.onAuthStateChange((ev,session)=>{const u=session&&session.user;
+    if(u&&(!CLOUD||CLOUD.id!==u.id))cloudLogin(u);
+    if(!u&&CLOUD)cloudLogout();});
+  sb.auth.getSession().then(r=>{const u=r&&r.data&&r.data.session&&r.data.session.user;if(u)cloudLogin(u);}).catch(()=>{});
+}
+renderAuthUI();
 renderProfiles();computeTaste();updateSummary();if(hasTaste())setSort("foryou");apply();
 </script></body></html>'''
 
