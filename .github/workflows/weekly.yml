@@ -47,8 +47,9 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [ -n "$SUPABASE_URL" ]; then
+            # auth/v1/settings returns 200 for both legacy anon JWTs and new publishable keys
             curl -s -o /dev/null -w "supabase ping: HTTP %{http_code}\n" \
-              "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY" || true
+              "$SUPABASE_URL/auth/v1/settings" -H "apikey: $SUPABASE_ANON_KEY" || true
           else
             echo "supabase not configured - skipping"
           fi
