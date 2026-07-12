@@ -117,7 +117,8 @@ def load_config():
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            cfg.update({k: v for k, v in raw.items()
+            cfg.update({k: (v.strip() if isinstance(v, str) else v)
+                        for k, v in raw.items()
                         if not k.startswith("_") and v not in (None, "")})
         except Exception as e:
             log(f"warning: could not read config.json ({e}); using defaults")

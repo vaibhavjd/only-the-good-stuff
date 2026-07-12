@@ -31,9 +31,9 @@ jobs:
         run: |
           python - <<'PY'
           import json, os
-          key = os.environ.get("TMDB_BEARER", "")
+          key = os.environ.get("TMDB_BEARER", "").strip()   # strip stray newline/space
           json.dump({"tmdb_bearer": key, "recent_years": 2}, open("config.json", "w"))
-          print("config written; TMDB key present:", bool(key))
+          print("config written; TMDB key present:", bool(key), "len:", len(key))
           PY
 
       - name: Build the site (digest + sentiment + browse + landing)
