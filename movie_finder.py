@@ -1351,6 +1351,8 @@ h1{font-family:Georgia,serif;font-size:30px;margin:6px 0 4px}
 .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;white-space:nowrap}
 .chk input{accent-color:var(--accent)}
 .clearbtn:hover{color:var(--accent);border-color:var(--accent)}
+.fbadge{display:inline-block;background:var(--accent);color:#fff;border-radius:999px;padding:0 7px;font-size:11px;font-weight:700;margin-left:5px;font-variant-numeric:tabular-nums}
+@media (max-width:760px){.fpanel{max-height:52vh;overflow-y:auto;padding-bottom:6px}}
 .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}
 .chip{border:1px solid var(--line);background:var(--chipbg);color:var(--muted);border-radius:999px;padding:5px 11px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s}
 .chip:hover{border-color:var(--accent);color:var(--ink)}
@@ -1399,6 +1401,8 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   <span>Profile:</span>
   <select id="profile"></select>
   <button id="newp" class="mini">+ New profile</button>
+  <button id="renp" class="mini">Rename</button>
+  <button id="delp" class="mini">Delete</button>
   <span id="tastesum" class="tastesum"></span>
 </div>
 <div class="controls">
@@ -1412,7 +1416,9 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
       <option value="sen">Sort: Viewer sentiment</option>
       <option value="votes">Sort: Most rated</option>
     </select>
+    <button id="fbtn" class="select">Filters<span id="fcount" class="fbadge" hidden></span></button>
   </div>
+  <div id="fpanel" class="fpanel">
   <div class="row">
     <label class="rng">Min rating <b id="minRv">__THRESH__</b>
       <input id="minR" type="range" min="__THRESH__" max="9.5" step="0.1" value="__THRESH__"></label>
@@ -1427,6 +1433,7 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   </div>
   <div class="chips" id="langChips">__LANG_CHIPS__</div>
   <div class="chips" id="platChips">__PLAT_CHIPS__</div>
+  </div>
 </div>
 <div id="note" class="note" hidden></div>
 <div id="grid" class="grid"></div>
@@ -1514,6 +1521,7 @@ function apply(){
     &&(!state.plats.size||f.s.some(p=>state.plats.has(p))));
   out.sort(SORT[state.sort]);
   $("#count").textContent=out.length;
+  const fc=filterCount(),fb=$("#fcount");if(fb){fb.hidden=fc===0;fb.textContent=fc;}
   $("#grid").innerHTML=out.slice(0,600).map(card).join("");
   $("#empty").hidden=out.length>0;
   const note=$("#note");
@@ -1539,6 +1547,21 @@ $("#profile").addEventListener("change",e=>{ACTIVE=e.target.value;lset("mf_activ
 $("#newp").addEventListener("click",()=>{const n=(prompt("Name this profile:")||"").trim();if(!n)return;
   if(!PROFILES.includes(n)){PROFILES.push(n);lset("mf_profiles",PROFILES);}
   ACTIVE=n;lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
+$("#renp").addEventListener("click",()=>{
+  const n=(prompt("Rename profile '"+ACTIVE+"' to:",ACTIVE)||"").trim();
+  if(!n||n===ACTIVE)return;
+  if(PROFILES.includes(n)){alert("A profile named '"+n+"' already exists.");return;}
+  lset("mf_data_"+n,lget(dkey(),{like:{},dislike:{},seen:{},save:{}}));   // move data old -> new
+  try{localStorage.removeItem(dkey());}catch(e){}
+  PROFILES[PROFILES.indexOf(ACTIVE)]=n;lset("mf_profiles",PROFILES);
+  ACTIVE=n;lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
+$("#delp").addEventListener("click",()=>{
+  if(!confirm("Delete profile '"+ACTIVE+"' and its likes, saves and history?"))return;
+  try{localStorage.removeItem(dkey());}catch(e){}
+  PROFILES=PROFILES.filter(p=>p!==ACTIVE);
+  if(!PROFILES.length)PROFILES=["Me"];
+  lset("mf_profiles",PROFILES);
+  ACTIVE=PROFILES[0];lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
 $("#q").addEventListener("input",e=>{state.q=e.target.value;apply();});
 $("#sort").addEventListener("change",e=>{state.sort=e.target.value;apply();});
 $("#minR").addEventListener("input",e=>{state.minR=+e.target.value;$("#minRv").textContent=(+e.target.value).toFixed(1);apply();});
@@ -1565,6 +1588,14 @@ function resetAll(){
 }
 $("#clear").addEventListener("click",resetAll);
 $("#reset").addEventListener("click",e=>{e.preventDefault();resetAll();});
+function filterCount(){let n=0;
+  if(state.minR>R0)n++;
+  if(state.ymin>Y0||state.ymax<Y1)n++;
+  if(state.streamOnly)n++;if(state.hideIntl)n++;if(state.savedOnly)n++;if(state.hideSeen)n++;if(state.reviewedOnly)n++;
+  return n+state.langs.size+state.plats.size;}
+let fOpen=(typeof window!=="undefined"&&window.innerWidth>=760);   // collapsed by default on phones
+$("#fpanel").hidden=!fOpen;
+$("#fbtn").addEventListener("click",()=>{fOpen=!fOpen;$("#fpanel").hidden=!fOpen;});
 renderProfiles();computeTaste();updateSummary();if(hasTaste())setSort("foryou");apply();
 </script></body></html>'''
 
