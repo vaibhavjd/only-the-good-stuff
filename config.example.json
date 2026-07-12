@@ -1,0 +1,25 @@
+{
+  "_comment": "Copy this file to config.json and fill in what you want. EVERYTHING here is optional - the digest runs with zero config. Add a TMDB key to see India OTT availability; add Telegram to get the digest pushed to your phone.",
+
+  "tmdb_bearer": "",
+  "tmdb_api_key": "",
+  "_tmdb_help": "Get a FREE key at https://www.themoviedb.org/settings/api (create account -> API -> Developer). Paste the v4 'API Read Access Token' into tmdb_bearer, OR the v3 'API Key' into tmdb_api_key. Either works; bearer is preferred.",
+
+  "telegram_bot_token": "",
+  "telegram_chat_id": "",
+  "_telegram_help": "Optional push-to-phone. In Telegram, message @BotFather -> /newbot to get a token. Then message @userinfobot to get your numeric chat id. Paste both here and the digest is sent to you every run.",
+
+  "rating_threshold": 6.5,
+  "recent_years": 2,
+  "vote_floor_min": 500,
+  "vote_floor_max": 10000,
+  "per_lang_cap": 30,
+  "intl_cap": 50,
+  "enrich_limit": 60,
+  "pool_floor": 150,
+  "pool_cap": 500,
+  "browse_vote_floor": 2000,
+  "browse_cap": 6000,
+  "browse_workers": 8,
+  "_tuning_help": "rating_threshold = the weighted-rating bar (Gate 2). recent_years = how far back the weekly digest looks. pool_floor/pool_cap size the weekly digest's TMDB candidate pool. browse_vote_floor/browse_cap size the all-time browse catalog (lower floor / higher cap = more films but slower first build). browse_workers = concurrent TMDB lookups."
+}

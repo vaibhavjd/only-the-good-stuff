@@ -1,0 +1,9 @@
+# local data + build artifacts (never commit these)
+data/
+out/
+moviefinder.db
+moviefinder.db-wal
+moviefinder.db-shm
+config.json
+__pycache__/
+*.pyc

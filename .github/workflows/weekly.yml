@@ -1,0 +1,62 @@
+name: Weekly Movie Finder
+
+# Rebuilds the digest + browse dashboard every week and publishes them to GitHub Pages.
+on:
+  schedule:
+    - cron: "30 2 * * 5"      # Fridays 02:30 UTC (~08:00 IST). Adjust as you like.
+  workflow_dispatch:           # lets you run it on demand from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Write config from secret
+        env:
+          TMDB_BEARER: ${{ secrets.TMDB_BEARER }}
+        run: |
+          python - <<'PY'
+          import json, os
+          key = os.environ.get("TMDB_BEARER", "")
+          json.dump({"tmdb_bearer": key, "recent_years": 2}, open("config.json", "w"))
+          print("config written; TMDB key present:", bool(key))
+          PY
+
+      - name: Build the site (digest + sentiment + browse + landing)
+        run: python movie_finder.py site
+
+      - name: Sanity check the build
+        run: |
+          test -f out/index.html
+          test -f out/browse.html
+          test -f out/digest-latest.html
+          echo "build looks good"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
