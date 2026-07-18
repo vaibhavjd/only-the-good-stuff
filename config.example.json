@@ -24,6 +24,8 @@
   "pool_cap": 500,
   "browse_vote_floor": 2000,
   "browse_cap": 6000,
+  "shows_vote_floor": 1000,
+  "shows_cap": 2500,
   "browse_workers": 8,
-  "_tuning_help": "rating_threshold = the weighted-rating bar (Gate 2). recent_years = how far back the weekly digest looks. pool_floor/pool_cap size the weekly digest's TMDB candidate pool. browse_vote_floor/browse_cap size the all-time browse catalog (lower floor / higher cap = more films but slower first build). browse_workers = concurrent TMDB lookups."
+  "_tuning_help": "rating_threshold = the weighted-rating bar (Gate 2). recent_years = how far back the weekly digest looks. pool_floor/pool_cap size the weekly digest's TMDB candidate pool. browse_vote_floor/browse_cap size the MOVIE side of the app catalog (min IMDb votes / max movies; lower floor / higher cap = more films but slower first build). shows_vote_floor/shows_cap do the same for TV SHOWS (shows have no rating gate - just a vote floor - so the app can list everything people actually watch). browse_workers = concurrent TMDB lookups."
 }

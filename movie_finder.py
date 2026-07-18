@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Movie Finder - Phase 0 personal weekly digest.
+Movie Finder - personal weekly digest + static discovery app (v2).
 
-Zero-dependency (Python standard library only). Finds genuinely good movies
-(Indian regional + international) using PER-CATEGORY IMDb vote baselines, so a
-film is judged against the vote norms of its own category rather than one flat bar.
-Optionally maps each pick to the Indian OTT platform that streams it (TMDB) and
-tags its true original language (TMDB), then renders a weekly digest as HTML +
-Markdown (optionally pushes to Telegram).
+Zero-dependency (Python standard library only). Finds genuinely good movies AND
+TV shows (Indian regional + international) using PER-CATEGORY IMDb vote baselines
+(language x kind strata), so a title is judged against the vote norms of its own
+category rather than one flat bar. Optionally maps each pick to the Indian OTT
+platform that streams it (TMDB) and tags its true original language (TMDB), then
+emits the static app (out/index.html + out/data.js) and a weekly digest as HTML +
+Markdown (optionally pushed to Telegram).
 
 Data source: IMDb non-commercial datasets (https://datasets.imdbws.com) - free,
 for personal / non-commercial use only.
@@ -71,6 +72,19 @@ LANG_NAMES = {
     "gu": "Gujarati", "or": "Odia", "as": "Assamese",
     "other_in": "Indian (other/unclassified)", "intl": "International",
 }
+KIND_BY_TYPE = {"movie": "m", "tvSeries": "s", "tvMiniSeries": "s"}
+KIND_LABEL = {"m": "movies", "s": "series"}
+COUNTRY_NAMES = {
+    "IN": "India", "US": "United States", "GB": "United Kingdom", "KR": "South Korea",
+    "JP": "Japan", "FR": "France", "DE": "Germany", "IT": "Italy", "ES": "Spain",
+    "CA": "Canada", "AU": "Australia", "CN": "China", "HK": "Hong Kong", "TW": "Taiwan",
+    "TR": "Turkey", "IR": "Iran", "BR": "Brazil", "MX": "Mexico", "RU": "Russia",
+    "TH": "Thailand", "ID": "Indonesia", "PK": "Pakistan", "BD": "Bangladesh",
+    "LK": "Sri Lanka", "NP": "Nepal", "AR": "Argentina", "DK": "Denmark",
+    "SE": "Sweden", "NO": "Norway", "FI": "Finland", "NL": "Netherlands",
+    "BE": "Belgium", "PL": "Poland", "IE": "Ireland", "NZ": "New Zealand",
+    "ZA": "South Africa", "EG": "Egypt", "IL": "Israel",
+}
 KNOWN_INTL_LANGS = {"en", "ko", "ja", "es", "fr", "it", "de", "zh", "cn",
                     "ru", "pt", "tr", "fa", "th", "sv", "da", "nl", "pl"}
 WESTERN_REGIONS = {"US", "GB", "CA", "AU", "NZ", "IE"}
@@ -90,8 +104,10 @@ DEFAULTS = {
     "enrich_limit": 60,        # (no-key/display path) top titles to look up on TMDB
     "pool_floor": 150,         # (TMDB gate) min IMDb votes to enter the candidate pool
     "pool_cap": 500,           # (TMDB gate) max pool titles to enrich per run
-    "browse_vote_floor": 2000, # (browse) min IMDb votes for the all-time browse catalog
-    "browse_cap": 6000,        # (browse) max films in the browse catalog
+    "browse_vote_floor": 2000, # (catalog) min IMDb votes for a movie to enter the app catalog
+    "browse_cap": 6000,        # (catalog) max movies in the app catalog
+    "shows_vote_floor": 1000,  # (catalog) min IMDb votes for a TV show to enter the app catalog
+    "shows_cap": 2500,         # (catalog) max TV shows in the app catalog
     "browse_workers": 8,       # concurrent TMDB lookups when building the catalog
     "sentiment_cap": 1500,     # (sentiment) how many top-voted films to fetch reviews for
     "sentiment_reviews": 25,   # (sentiment) max reviews analyzed per film
@@ -229,22 +245,20 @@ def create_schema(con):
         DROP TABLE IF EXISTS scores;
         CREATE TABLE titles (
             tconst TEXT PRIMARY KEY, primary_title TEXT, original_title TEXT,
-            start_year INTEGER, runtime_min INTEGER, genres TEXT
+            kind TEXT, start_year INTEGER, end_year INTEGER, runtime_min INTEGER, genres TEXT
         );
         CREATE TABLE ratings (tconst TEXT PRIMARY KEY, avg_rating REAL, num_votes INTEGER);
         CREATE TABLE title_lang (tconst TEXT PRIMARY KEY, language_bucket TEXT, market TEXT);
         CREATE TABLE baselines (
-            bucket TEXT PRIMARY KEY, ref_count INTEGER, v_min INTEGER,
-            m INTEGER, c REAL, p90 INTEGER, rolled INTEGER
+            bucket TEXT, kind TEXT, ref_count INTEGER, v_min INTEGER,
+            m INTEGER, c REAL, p90 INTEGER, rolled INTEGER,
+            PRIMARY KEY (bucket, kind)
         );
         CREATE TABLE scores (
-            tconst TEXT PRIMARY KEY, bucket TEXT, market TEXT, wr REAL,
+            tconst TEXT PRIMARY KEY, bucket TEXT, kind TEXT, market TEXT, wr REAL,
             eligible INTEGER, confidence TEXT, vote_percentile REAL
         );
         CREATE TABLE IF NOT EXISTS digest_history (tconst TEXT PRIMARY KEY, first_surfaced TEXT);
-        CREATE TABLE IF NOT EXISTS tmdb_cache (
-            tconst TEXT PRIMARY KEY, orig_lang TEXT, providers_json TEXT, fetched TEXT
-        );
         """
     )
 
@@ -258,30 +272,33 @@ def iter_tsv(path):
 
 def load_basics(con):
     path = os.path.join(DATA_DIR, IMDB_FILES["basics"])
-    log("loading titles (movies only) ...")
+    log("loading titles (movies + tv series) ...")
     cur = con.cursor()
     batch = []
-    scanned = kept = 0
+    scanned = 0
+    kept = Counter()
     for row in iter_tsv(path):
         if len(row) < 9:
             continue
         scanned += 1
-        if row[1] != "movie" or row[4] == "1":  # keep features, drop adult
+        kind = KIND_BY_TYPE.get(row[1])
+        if kind is None or row[4] == "1":  # keep features + series, drop adult
             continue
-        batch.append((row[0], row[2], row[3],
+        batch.append((row[0], row[2], row[3], kind,
                       safe_int(row[5]) if row[5] != NULL else None,
+                      safe_int(row[6]) if row[6] != NULL else None,
                       safe_int(row[7]) if row[7] != NULL else None,
                       "" if row[8] == NULL else row[8]))
-        kept += 1
+        kept[kind] += 1
         if len(batch) >= 50000:
-            cur.executemany("INSERT OR REPLACE INTO titles VALUES(?,?,?,?,?,?)", batch)
+            cur.executemany("INSERT OR REPLACE INTO titles VALUES(?,?,?,?,?,?,?,?)", batch)
             batch.clear()
         if scanned % 2000000 == 0:
             log(f"  basics scanned {scanned:,}")
     if batch:
-        cur.executemany("INSERT OR REPLACE INTO titles VALUES(?,?,?,?,?,?)", batch)
+        cur.executemany("INSERT OR REPLACE INTO titles VALUES(?,?,?,?,?,?,?,?)", batch)
     con.commit()
-    log(f"  movies kept: {kept:,}")
+    log(f"  kept: {kept['m']:,} movies + {kept['s']:,} series")
 
 
 def load_ratings(con):
@@ -336,9 +353,9 @@ def classify(langs, regions, orig_lang):
 
 
 def load_akas(con):
-    log("indexing movie ids for language bucketing ...")
-    movie_ids = set(r[0] for r in con.execute("SELECT tconst FROM titles"))
-    log(f"  {len(movie_ids):,} movie ids in memory")
+    log("indexing title ids for language bucketing ...")
+    title_ids = set(r[0] for r in con.execute("SELECT tconst FROM titles"))
+    log(f"  {len(title_ids):,} title ids in memory")
     path = os.path.join(DATA_DIR, IMDB_FILES["akas"])
     log("loading akas (streaming, grouped by title) ...")
     cur = con.cursor()
@@ -350,7 +367,7 @@ def load_akas(con):
     orig_lang = None
 
     def flush(tid):
-        if tid is None or tid not in movie_ids:
+        if tid is None or tid not in title_ids:
             return
         b, m = classify(langs, regions, orig_lang)
         batch.append((tid, b, m))
@@ -372,7 +389,7 @@ def load_akas(con):
                 langs = Counter()
                 regions = set()
                 orig_lang = None
-            if tid in movie_ids:
+            if tid in title_ids:
                 region, language, is_orig = p[3], p[4], p[7]
                 if region and region != NULL:
                     regions.add(region)
@@ -404,22 +421,21 @@ def build(con):
 def compute(con, cfg):
     cur_year = datetime.now().year
     ref_from = cur_year - cfg["ref_window_years"]
-    log("loading rated movies for baseline computation ...")
+    log("loading rated titles for baseline computation ...")
     rows = con.execute(
         """
-        SELECT t.tconst, t.start_year, r.avg_rating, r.num_votes,
+        SELECT t.tconst, t.kind, t.start_year, r.avg_rating, r.num_votes,
                COALESCE(l.language_bucket,'intl'), COALESCE(l.market,'international')
         FROM titles t JOIN ratings r ON r.tconst = t.tconst
         LEFT JOIN title_lang l ON l.tconst = t.tconst
         """
     ).fetchall()
-    log(f"  {len(rows):,} rated movies")
+    log(f"  {len(rows):,} rated titles")
 
-    ref = defaultdict(list)  # bucket -> [(votes, rating)]
-    for tc, sy, ar, nv, bucket, market in rows:
+    ref = defaultdict(list)  # (bucket, kind) -> [(votes, rating)]
+    for tc, kind, sy, ar, nv, bucket, market in rows:
         if sy and sy >= ref_from and nv >= cfg["ref_vote_cutoff"]:
-            ref[bucket].append((nv, ar))
-    ref_global = [x for lst in ref.values() for x in lst]
+            ref[(bucket, kind)].append((nv, ar))
 
     def baseline_from(pairs):
         votes = sorted(p[0] for p in pairs)
@@ -430,55 +446,60 @@ def compute(con, cfg):
         return {"votes": votes, "vmin": vmin, "m": m, "c": round(c, 3),
                 "p90": int(percentile(votes, 90)), "n": len(pairs)}
 
-    gb = baseline_from(ref_global) if ref_global else {
-        "votes": [], "vmin": cfg["vote_floor_min"], "m": cfg["prior_min"],
-        "c": 6.0, "p90": 0, "n": 0}
+    gb = {}  # per-kind GLOBAL roll-up target
+    for kind in ("m", "s"):
+        pairs = [x for (b, k), lst in ref.items() if k == kind for x in lst]
+        gb[kind] = baseline_from(pairs) if pairs else {
+            "votes": [], "vmin": cfg["vote_floor_min"], "m": cfg["prior_min"],
+            "c": 6.0, "p90": 0, "n": 0}
     bl = {}
-    for bucket, pairs in ref.items():
+    for (bucket, kind), pairs in ref.items():
         if len(pairs) >= cfg["min_ref_titles"]:
             d = baseline_from(pairs)
             d["rolled"] = 0
-            bl[bucket] = d
+            bl[(bucket, kind)] = d
         else:
-            bl[bucket] = dict(gb, n=len(pairs), rolled=1)
-    bl["GLOBAL"] = dict(gb, rolled=0)
+            bl[(bucket, kind)] = dict(gb[kind], n=len(pairs), rolled=1)
+    for kind in ("m", "s"):
+        bl[("GLOBAL", kind)] = dict(gb[kind], rolled=0)
 
     con.execute("DELETE FROM baselines")
     con.executemany(
-        "INSERT OR REPLACE INTO baselines VALUES(?,?,?,?,?,?,?)",
-        [(b, d["n"], d["vmin"], d["m"], d["c"], d["p90"], d.get("rolled", 0))
-         for b, d in bl.items()],
+        "INSERT OR REPLACE INTO baselines VALUES(?,?,?,?,?,?,?,?)",
+        [(b, k, d["n"], d["vmin"], d["m"], d["c"], d["p90"], d.get("rolled", 0))
+         for (b, k), d in bl.items()],
     )
 
     log("per-category baselines (last %dy, votes>=%d):" % (cfg["ref_window_years"], cfg["ref_vote_cutoff"]))
-    print(f"    {'bucket':<26}{'ref#':>8}{'v_min':>8}{'m':>8}{'C':>7}{'P90':>9}   note")
-    for b, d in sorted(bl.items(), key=lambda kv: -kv[1]["n"]):
+    print(f"    {'stratum':<34}{'ref#':>8}{'v_min':>8}{'m':>8}{'C':>7}{'P90':>9}   note")
+    for (b, k), d in sorted(bl.items(), key=lambda kv: (kv[0][1], -kv[1]["n"])):
         if b == "GLOBAL":
             continue
         note = "rolled->GLOBAL" if d.get("rolled") else ""
-        print(f"    {LANG_NAMES.get(b, b):<26}{d['n']:>8}{d['vmin']:>8}{d['m']:>8}"
+        label = f"{LANG_NAMES.get(b, b)} ({KIND_LABEL[k]})"
+        print(f"    {label:<34}{d['n']:>8}{d['vmin']:>8}{d['m']:>8}"
               f"{d['c']:>7.2f}{d['p90']:>9}   {note}")
 
     thr = cfg["rating_threshold"]
     score_rows = []
-    for tc, sy, ar, nv, bucket, market in rows:
-        d = bl.get(bucket) or gb
-        d_use = gb if d.get("rolled") else d
+    for tc, kind, sy, ar, nv, bucket, market in rows:
+        d = bl.get((bucket, kind)) or gb[kind]
+        d_use = gb[kind] if d.get("rolled") else d
         v, R, m, C, vmin = nv, ar, d_use["m"], d_use["c"], d_use["vmin"]
         wr = (v / (v + m)) * R + (m / (v + m)) * C
         eligible = 1 if (v >= vmin and wr >= thr) else 0
         vp = pct_rank(d_use["votes"], v) if d_use["votes"] else 0.0
         conf = "confirmed" if (v >= m and sy and sy <= cur_year - 1) else "provisional"
-        score_rows.append((tc, bucket, market, round(wr, 2), eligible, conf, round(vp, 1)))
+        score_rows.append((tc, bucket, kind, market, round(wr, 2), eligible, conf, round(vp, 1)))
 
     con.execute("DELETE FROM scores")
     cur = con.cursor()
     for i in range(0, len(score_rows), 50000):
-        cur.executemany("INSERT OR REPLACE INTO scores VALUES(?,?,?,?,?,?,?)",
+        cur.executemany("INSERT OR REPLACE INTO scores VALUES(?,?,?,?,?,?,?,?)",
                         score_rows[i:i + 50000])
     con.commit()
-    elig = sum(1 for r in score_rows if r[4])
-    log(f"  scored {len(score_rows):,} movies; {elig:,} pass the two-gate quality bar")
+    elig = sum(1 for r in score_rows if r[5])
+    log(f"  scored {len(score_rows):,} titles; {elig:,} pass the two-gate quality bar")
 
 
 # --------------------------------------------------------------------------- #
@@ -503,39 +524,70 @@ def tmdb_get(path, params, cfg, _retry=2):
         raise
 
 
-def _tmdb_fetch_one(tc, cfg, with_providers):
-    rec = {"lang": None, "votes": 0, "rating": 0.0, "offers": []}
+def year_of(datestr):
+    """'2019-04-12' -> 2019 (None if absent/malformed)."""
+    return safe_int((datestr or "")[:4])
+
+
+def _empty_rec3():
+    return {"kind": None, "id": None, "lang": None, "votes": 0, "rating": 0.0,
+            "overview": "", "poster": "", "countries": [], "offers": [],
+            "y1": None, "y2": None, "status": ""}
+
+
+def _tmdb_fetch_one3(tc, cfg):
+    """v3 lookup: /find detects movie vs tv (authoritative kind), then ONE details
+    call with watch/providers appended. Returns (tconst, rec) or (tconst, None) on error."""
+    rec = _empty_rec3()
     try:
         found = tmdb_get(f"/find/{tc}", {"external_source": "imdb_id"}, cfg)
-        results = found.get("movie_results") or []
-        if results:
-            m0 = results[0]
-            rec["lang"] = m0.get("original_language")
-            rec["votes"] = m0.get("vote_count", 0) or 0
-            rec["rating"] = m0.get("vote_average", 0.0) or 0.0
-            if with_providers:
-                prov = tmdb_get(f"/movie/{m0['id']}/watch/providers", {}, cfg)
-                inr = (prov.get("results") or {}).get("IN") or {}
-                for otype in ("flatrate", "free", "ads", "rent", "buy"):
-                    for p in inr.get(otype, []):
-                        rec["offers"].append({"type": otype, "name": p.get("provider_name", "?")})
+        mres = found.get("movie_results") or []
+        tres = found.get("tv_results") or []
+        if mres:
+            kind, m0 = "m", mres[0]
+        elif tres:
+            kind, m0 = "s", tres[0]
+        else:
+            return tc, rec                       # no TMDB match - cache the empty rec
+        rec["kind"], rec["id"] = kind, m0.get("id")
+        base = "/movie" if kind == "m" else "/tv"
+        det = tmdb_get(f"{base}/{rec['id']}", {"append_to_response": "watch/providers"}, cfg)
+        rec["lang"] = det.get("original_language")
+        rec["votes"] = det.get("vote_count", 0) or 0
+        rec["rating"] = det.get("vote_average", 0.0) or 0.0
+        rec["overview"] = det.get("overview") or ""
+        rec["poster"] = det.get("poster_path") or ""
+        if kind == "m":
+            rec["countries"] = [c.get("iso_3166_1") for c in det.get("production_countries") or []
+                                if c.get("iso_3166_1")]
+        else:
+            rec["countries"] = [c for c in det.get("origin_country") or [] if c]
+            rec["y1"] = year_of(det.get("first_air_date"))
+            rec["y2"] = year_of(det.get("last_air_date"))
+            rec["status"] = det.get("status") or ""
+        inr = ((det.get("watch/providers") or {}).get("results") or {}).get("IN") or {}
+        for otype in ("flatrate", "free", "ads", "rent", "buy"):
+            for p in inr.get(otype, []):
+                rec["offers"].append({"type": otype, "name": p.get("provider_name", "?")})
     except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError):
         return tc, None
     return tc, rec
 
 
-def enrich_tmdb(con, cfg, tconsts, with_providers=True, workers=8):
-    """Look up each IMDb id on TMDB -> info{tconst -> {lang, votes, rating, offers}}.
-    Concurrent (thread pool) for speed; results cached for the day. Network happens in
-    worker threads; all SQLite writes happen on this (main) thread as results arrive."""
-    con.execute("""CREATE TABLE IF NOT EXISTS tmdb_cache2
-        (tconst TEXT PRIMARY KEY, info_json TEXT, has_prov INT, fetched TEXT)""")
+def enrich_tmdb3(con, cfg, tconsts, workers=8):
+    """Look up each IMDb id on TMDB (movies AND tv) -> info{tconst -> rec}. rec carries
+    kind/id/lang/votes/rating/overview/poster/countries/IN offers (+ tv air years/status).
+    Concurrent (thread pool) for speed; results cached for the day in tmdb_cache3 (old
+    cache tables are left untouched). Network happens in worker threads; all SQLite
+    writes happen on this (main) thread as results arrive."""
+    con.execute("""CREATE TABLE IF NOT EXISTS tmdb_cache3
+        (tconst TEXT PRIMARY KEY, info_json TEXT, fetched TEXT)""")
     today = date.today().isoformat()
     info, to_fetch = {}, []
     for tc in tconsts:
-        row = con.execute("SELECT info_json, has_prov FROM tmdb_cache2 WHERE tconst=? AND fetched=?",
+        row = con.execute("SELECT info_json FROM tmdb_cache3 WHERE tconst=? AND fetched=?",
                           (tc, today)).fetchone()
-        if row and (row[1] or not with_providers):
+        if row:
             info[tc] = json.loads(row[0])
         else:
             to_fetch.append(tc)
@@ -543,13 +595,13 @@ def enrich_tmdb(con, cfg, tconsts, with_providers=True, workers=8):
         log(f"  enriching {len(to_fetch)} titles via TMDB ({workers} workers) ...")
         done = misses = 0
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            for tc, rec in ex.map(lambda t: _tmdb_fetch_one(t, cfg, with_providers), to_fetch):
+            for tc, rec in ex.map(lambda t: _tmdb_fetch_one3(t, cfg), to_fetch):
                 if rec is None:
-                    rec = {"lang": None, "votes": 0, "rating": 0.0, "offers": []}
+                    rec = _empty_rec3()
                     misses += 1
                 info[tc] = rec
-                con.execute("INSERT OR REPLACE INTO tmdb_cache2 VALUES(?,?,?,?)",
-                            (tc, json.dumps(rec), 1 if with_providers else 0, today))
+                con.execute("INSERT OR REPLACE INTO tmdb_cache3 VALUES(?,?,?)",
+                            (tc, json.dumps(rec), today))
                 done += 1
                 if done % 250 == 0:
                     con.commit()
@@ -574,19 +626,21 @@ TMDB_VMIN_CLAMP = (10, 5000)              # TMDB vote scale (far lower than IMDb
 TMDB_M_CLAMP = (30, 12000)
 
 
-def discover_lang_stats(cfg, lang, years, max_pages, vote_floor):
-    """Enumerate a language's films from TMDB /discover, newest 'years' window,
-    sorted by vote_count desc. Returns (votes[], ratings[])."""
+def discover_lang_stats(cfg, lang, years, max_pages, vote_floor, kind="m"):
+    """Enumerate a language's titles from TMDB /discover/movie or /discover/tv,
+    newest 'years' window, sorted by vote_count desc. Returns (votes[], ratings[])."""
     from_date = f"{datetime.now().year - years}-01-01"
+    path = "/discover/movie" if kind == "m" else "/discover/tv"
+    date_key = "primary_release_date.gte" if kind == "m" else "first_air_date.gte"
     votes, ratings = [], []
     for page in range(1, max_pages + 1):
         try:
-            data = tmdb_get("/discover/movie", {
+            data = tmdb_get(path, {
                 "with_original_language": lang, "sort_by": "vote_count.desc",
-                "primary_release_date.gte": from_date, "vote_count.gte": vote_floor,
+                date_key: from_date, "vote_count.gte": vote_floor,
                 "include_adult": "false", "page": page}, cfg)
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError) as e:
-            log(f"  discover {lang} page {page} failed: {e}")
+            log(f"  discover {lang}/{kind} page {page} failed: {e}")
             break
         results = data.get("results") or []
         for m in results:
@@ -610,50 +664,57 @@ def tmdb_baseline_from(votes, ratings, cfg):
 
 
 def build_tmdb_baselines(con, cfg, years=10, max_pages=12, force=False):
-    """Compute per-language baselines on TMDB's own vote scale (authoritative
-    language via original_language). Cached in tmdb_baselines for the day."""
-    con.execute("""CREATE TABLE IF NOT EXISTS tmdb_baselines
-        (bucket TEXT PRIMARY KEY, v_min INT, m INT, c REAL, p90 INT, n INT, built TEXT)""")
+    """Compute per-(language x kind) baselines on TMDB's own vote scale (authoritative
+    language via original_language) from /discover/movie AND /discover/tv. Cached in
+    tmdb_baselines2 for the day (the old tmdb_baselines table is left untouched).
+    Returns {(bucket, kind) -> baseline}."""
+    con.execute("""CREATE TABLE IF NOT EXISTS tmdb_baselines2
+        (bucket TEXT, kind TEXT, v_min INT, m INT, c REAL, p90 INT, n INT, built TEXT,
+         PRIMARY KEY (bucket, kind))""")
     today = date.today().isoformat()
     if not force:
-        cached = con.execute("SELECT bucket, v_min, m, c, p90, n FROM tmdb_baselines WHERE built=?",
-                             (today,)).fetchall()
-        if len(cached) >= 5:
-            return {b: {"vmin": v, "m": m, "c": c, "p90": p, "n": n}
-                    for b, v, m, c, p, n in cached}
+        cached = con.execute("SELECT bucket, kind, v_min, m, c, p90, n FROM tmdb_baselines2 "
+                             "WHERE built=?", (today,)).fetchall()
+        if len(cached) >= 8:
+            return {(b, k): {"vmin": v, "m": m, "c": c, "p90": p, "n": n}
+                    for b, k, v, m, c, p, n in cached}
 
-    log("building TMDB per-language baselines via /discover ...")
+    log("building TMDB per-(language x kind) baselines via /discover ...")
     baselines = {}
-    for lang in TMDB_INDIAN_LANGS:
-        votes, ratings = discover_lang_stats(cfg, lang, years, max_pages, vote_floor=8)
-        bl = tmdb_baseline_from(votes, ratings, cfg)
+    for kind in ("m", "s"):
+        for lang in TMDB_INDIAN_LANGS:
+            votes, ratings = discover_lang_stats(cfg, lang, years, max_pages,
+                                                 vote_floor=8, kind=kind)
+            bl = tmdb_baseline_from(votes, ratings, cfg)
+            if bl:
+                baselines[(lang, kind)] = bl
+        # pooled international baseline (per kind)
+        ivotes, iratings = [], []
+        for lang in TMDB_INTL_LANGS:
+            v, r = discover_lang_stats(cfg, lang, years, max_pages, vote_floor=50, kind=kind)
+            ivotes += v
+            iratings += r
+        bl = tmdb_baseline_from(ivotes, iratings, cfg)
         if bl:
-            baselines[lang] = bl
-    # pooled international baseline
-    ivotes, iratings = [], []
-    for lang in TMDB_INTL_LANGS:
-        v, r = discover_lang_stats(cfg, lang, years, max_pages, vote_floor=50)
-        ivotes += v
-        iratings += r
-    bl = tmdb_baseline_from(ivotes, iratings, cfg)
-    if bl:
-        baselines["intl"] = bl
+            baselines[("intl", kind)] = bl
 
-    con.execute("DELETE FROM tmdb_baselines")
-    con.executemany("INSERT OR REPLACE INTO tmdb_baselines VALUES(?,?,?,?,?,?,?)",
-                    [(b, d["vmin"], d["m"], d["c"], d["p90"], d["n"], today)
-                     for b, d in baselines.items()])
+    con.execute("DELETE FROM tmdb_baselines2")
+    con.executemany("INSERT OR REPLACE INTO tmdb_baselines2 VALUES(?,?,?,?,?,?,?,?)",
+                    [(b, k, d["vmin"], d["m"], d["c"], d["p90"], d["n"], today)
+                     for (b, k), d in baselines.items()])
     con.commit()
 
     log("TMDB per-category baselines (last %dy):" % years)
-    print(f"    {'bucket':<16}{'films':>7}{'v_min(P35)':>12}{'m(P60)':>9}{'C':>7}{'P90':>9}")
+    print(f"    {'stratum':<26}{'titles':>7}{'v_min(P35)':>12}{'m(P60)':>9}{'C':>7}{'P90':>9}")
     order = ["intl"] + TMDB_INDIAN_LANGS
-    for b in order:
-        if b in baselines:
-            d = baselines[b]
-            print(f"    {LANG_NAMES.get(b, b):<16}{d['n']:>7}{d['vmin']:>12}{d['m']:>9}"
-                  f"{d['c']:>7.2f}{d['p90']:>9}")
-    return {b: {k: d[k] for k in ("vmin", "m", "c", "p90", "n")} for b, d in baselines.items()}
+    for kind in ("m", "s"):
+        for b in order:
+            if (b, kind) in baselines:
+                d = baselines[(b, kind)]
+                label = f"{LANG_NAMES.get(b, b)} ({KIND_LABEL[kind]})"
+                print(f"    {label:<26}{d['n']:>7}{d['vmin']:>12}{d['m']:>9}"
+                      f"{d['c']:>7.2f}{d['p90']:>9}")
+    return {bk: {k: d[k] for k in ("vmin", "m", "c", "p90", "n")} for bk, d in baselines.items()}
 
 
 def tmdb_selftest(cfg):
@@ -715,19 +776,19 @@ def tmdb_gated_candidates(con, cfg):
     cur_year = datetime.now().year
     recent_from = cur_year - cfg["recent_years"] + 1
     baselines = build_tmdb_baselines(con, cfg)
-    intl = baselines.get("intl") or {"vmin": 200, "m": 800, "c": 7.0, "p90": 10000, "n": 0}
+    intl = baselines.get(("intl", "m")) or {"vmin": 200, "m": 800, "c": 7.0, "p90": 10000, "n": 0}
     pool = con.execute(
         """
         SELECT t.tconst, t.primary_title, t.original_title, t.start_year, t.genres,
                t.runtime_min, r.avg_rating, r.num_votes
         FROM titles t JOIN ratings r ON r.tconst = t.tconst
-        WHERE t.start_year >= ? AND r.avg_rating >= ? AND r.num_votes >= ?
+        WHERE t.kind = 'm' AND t.start_year >= ? AND r.avg_rating >= ? AND r.num_votes >= ?
         ORDER BY r.avg_rating DESC, r.num_votes DESC LIMIT ?
         """,
         (recent_from, cfg["rating_threshold"], cfg["pool_floor"], cfg["pool_cap"]),
     ).fetchall()
     log(f"TMDB per-language gate: enriching {len(pool)} candidate titles ...")
-    info = enrich_tmdb(con, cfg, [p[0] for p in pool], with_providers=True)
+    info = enrich_tmdb3(con, cfg, [p[0] for p in pool], workers=cfg["browse_workers"])
 
     thr = cfg["rating_threshold"]
     rows, providers = [], {}
@@ -740,7 +801,7 @@ def tmdb_gated_candidates(con, cfg):
         if not lang or tv <= 0:
             continue
         bucket, market = lang_to_bucket(lang)
-        bl = baselines.get(bucket, intl)
+        bl = baselines.get((bucket, "m"), intl)
         m, C, vmin = bl["m"], bl["c"], bl["vmin"]
         wr = (tv / (tv + m)) * tr + (m / (tv + m)) * C
         if tv < vmin or wr < thr:            # Gate 1 (category vote floor) + Gate 2 (damped)
@@ -768,7 +829,7 @@ def imdb_display_candidates(con, cfg):
         FROM scores s
         JOIN titles t ON t.tconst = s.tconst
         JOIN ratings r ON r.tconst = s.tconst
-        WHERE s.eligible = 1 AND t.start_year >= ?
+        WHERE s.eligible = 1 AND s.kind = 'm' AND t.start_year >= ?
         ORDER BY s.wr DESC
         """,
         (recent_from,),
@@ -1160,23 +1221,36 @@ def aggregate_sentiment(reviews, imdb_rating):
         nr = len(ratings)
         ts = (base * nr + 6.8 * 1.5) / (nr + 1.5)          # gentle shrink toward 6.8
         conf = "high" if nr >= 6 else ("medium" if nr >= 3 else "low")
-    else:
+    elif text_scores:
         ts = sum(text_scores) / len(text_scores)
         conf = "low"
+    elif ratings:                          # a single star-rating, no usable review text
+        ts = (ratings[0] + 6.8 * 1.5) / (1 + 1.5)
+        conf = "low"
+    else:
+        return None
     return {"n": len(reviews), "ts": round(ts, 1), "aspects": aspects, "verdict": verdict,
             "div": round(ts - imdb_rating, 1) if imdb_rating else 0.0, "conf": conf}
 
 
-def _fetch_reviews_one(tc, cfg, max_reviews):
+def _fetch_reviews_one(tc, kind, tmdb_id, cfg, max_reviews):
+    """Fetch TMDB user reviews for one title. kind/tmdb_id come from the enrichment
+    cache when available (routes /movie vs /tv without a /find round-trip)."""
     try:
-        found = tmdb_get(f"/find/{tc}", {"external_source": "imdb_id"}, cfg)
-        res = found.get("movie_results") or []
-        if not res:
-            return tc, []
-        mid = res[0]["id"]
+        if not tmdb_id:
+            found = tmdb_get(f"/find/{tc}", {"external_source": "imdb_id"}, cfg)
+            mres = found.get("movie_results") or []
+            tres = found.get("tv_results") or []
+            if mres:
+                kind, tmdb_id = "m", mres[0]["id"]
+            elif tres:
+                kind, tmdb_id = "s", tres[0]["id"]
+            else:
+                return tc, []
+        base = "/tv" if kind == "s" else "/movie"
         reviews = []
         for page in (1, 2):
-            data = tmdb_get(f"/movie/{mid}/reviews", {"page": page}, cfg)
+            data = tmdb_get(f"{base}/{tmdb_id}/reviews", {"page": page}, cfg)
             for r in data.get("results", []):
                 reviews.append({"content": r.get("content", ""),
                                 "rating": (r.get("author_details") or {}).get("rating")})
@@ -1188,26 +1262,34 @@ def _fetch_reviews_one(tc, cfg, max_reviews):
 
 
 def build_sentiment(con, cfg):
-    """Fetch TMDB user reviews for the most-voted catalog films and derive a
-    'viewer verdict' (True Sentiment + aspect breakdown + divergence from the rating)."""
+    """Fetch TMDB user reviews for the most-voted catalog titles (movies + shows) and
+    derive a 'viewer verdict' (True Sentiment + aspect breakdown + divergence)."""
     if not (cfg.get("tmdb_bearer") or cfg.get("tmdb_api_key")):
         log("sentiment needs a TMDB key. Add one to config.json.")
         return 0, 0
     con.execute("""CREATE TABLE IF NOT EXISTS sentiment
         (tconst TEXT PRIMARY KEY, n INT, ts REAL, div REAL, conf TEXT, verdict TEXT, computed TEXT)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS tmdb_cache3
+        (tconst TEXT PRIMARY KEY, info_json TEXT, fetched TEXT)""")
     today = date.today().isoformat()
-    rows = con.execute(
-        "SELECT t.tconst, r.avg_rating FROM titles t JOIN ratings r ON r.tconst = t.tconst "
-        "WHERE r.avg_rating >= ? AND r.num_votes >= ? ORDER BY r.num_votes DESC LIMIT ?",
-        (cfg["rating_threshold"], cfg["browse_vote_floor"], cfg["sentiment_cap"])).fetchall()
-    imdb_r = {tc: ar for tc, ar in rows}
+    rows = sorted(catalog_rows(con, cfg), key=lambda r: -r[8])[:cfg["sentiment_cap"]]
+    imdb_r = {r[0]: r[7] for r in rows}
     done = set(r[0] for r in con.execute("SELECT tconst FROM sentiment WHERE computed=?", (today,)))
-    todo = [tc for tc, _ in rows if tc not in done]
-    log(f"sentiment: analyzing TMDB reviews for {len(todo)} films ({cfg['browse_workers']} workers) ...")
+    todo = [r[0] for r in rows if r[0] not in done]
+    refs = {}  # tconst -> (kind, tmdb_id) from the enrichment cache (any day is fine)
+    for tc in todo:
+        row = con.execute("SELECT info_json FROM tmdb_cache3 WHERE tconst=?", (tc,)).fetchone()
+        if row:
+            rec = json.loads(row[0])
+            if rec.get("id"):
+                refs[tc] = (rec.get("kind"), rec.get("id"))
+    log(f"sentiment: analyzing TMDB reviews for {len(todo)} titles ({cfg['browse_workers']} workers) ...")
     got = 0
     with ThreadPoolExecutor(max_workers=cfg["browse_workers"]) as ex:
         for i, (tc, reviews) in enumerate(
-                ex.map(lambda t: _fetch_reviews_one(t, cfg, cfg["sentiment_reviews"]), todo)):
+                ex.map(lambda t: _fetch_reviews_one(
+                    t, refs.get(t, (None, None))[0], refs.get(t, (None, None))[1],
+                    cfg, cfg["sentiment_reviews"]), todo)):
             agg = aggregate_sentiment(reviews or [], imdb_r.get(tc)) if reviews else None
             if agg:
                 con.execute("INSERT OR REPLACE INTO sentiment VALUES(?,?,?,?,?,?,?)",
@@ -1221,489 +1303,234 @@ def build_sentiment(con, cfg):
                 log(f"    {i + 1}/{len(todo)} ({got} with reviews) ...")
     con.commit()
     total = con.execute("SELECT count(*) FROM sentiment WHERE n>0").fetchone()[0]
-    log(f"sentiment: {got} of {len(todo)} newly analyzed had TMDB reviews; {total} films have a verdict total")
+    log(f"sentiment: {got} of {len(todo)} newly analyzed had TMDB reviews; {total} titles have a verdict total")
     return got, len(todo)
 
 
 # --------------------------------------------------------------------------- #
-# 8. interactive browse dashboard (all-time, filterable)
+# 8. app catalog (movies + shows) -> out/data.js
 # --------------------------------------------------------------------------- #
-def build_browse(con, cfg, all_time=True):
-    """Build an interactive, filterable dashboard of the good-films catalog.
-    Unlike the weekly digest (a tight per-language gate), browse is INCLUSIVE:
-    every film rated >= threshold with enough votes, tagged with its true language
-    and India availability, for the user to filter/search/sort themselves."""
+def catalog_rows(con, cfg):
+    """Candidate rows for the app catalog: quality-gated movies + well-voted shows.
+    Row: (tconst, primary_title, original_title, kind, start_year, end_year,
+          genres, avg_rating, num_votes)."""
+    cols = ("SELECT t.tconst, t.primary_title, t.original_title, t.kind, t.start_year, "
+            "t.end_year, t.genres, r.avg_rating, r.num_votes "
+            "FROM titles t JOIN ratings r ON r.tconst = t.tconst ")
+    movies = con.execute(
+        cols + "WHERE t.kind='m' AND r.avg_rating >= ? AND r.num_votes >= ? "
+        "ORDER BY r.avg_rating DESC, r.num_votes DESC LIMIT ?",
+        (cfg["rating_threshold"], cfg["browse_vote_floor"], cfg["browse_cap"])).fetchall()
+    shows = con.execute(
+        cols + "WHERE t.kind='s' AND r.avg_rating >= ? AND r.num_votes >= ? "
+        "ORDER BY r.num_votes DESC, r.avg_rating DESC LIMIT ?",
+        (cfg["rating_threshold"], cfg["shows_vote_floor"], cfg["shows_cap"])).fetchall()
+    return movies + shows
+
+
+def snippet(text, limit=260):
+    """Collapse whitespace and truncate to <= limit chars, ending on a word."""
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit - 1]
+    if " " in cut:
+        cut = cut[:cut.rfind(" ")]
+    return cut.rstrip(" ,;:.") + "…"
+
+
+def country_display(codes, limit=3):
+    """ISO country codes -> up to `limit` unique display names (raw code fallback)."""
+    out = []
+    for code in codes:
+        name = COUNTRY_NAMES.get(code, code)
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= limit:
+            break
+    return out
+
+
+CATALOG_FALLBACK_BL = {"m": {"vmin": 200, "m": 800, "c": 7.0, "p90": 10000, "n": 0},
+                       "s": {"vmin": 50, "m": 300, "c": 7.0, "p90": 3000, "n": 0}}
+
+
+def build_catalog(con, cfg):
+    """Build the combined movies+shows catalog for the app: select, TMDB-enrich,
+    compute per-(language x kind) vote percentiles + first_surfaced. Returns the
+    list of MF_DATA title dicts (contract shape; 'se' is attached separately)."""
     if not (cfg.get("tmdb_bearer") or cfg.get("tmdb_api_key")):
-        log("browse needs a TMDB key (accurate language + availability). Add one to config.json.")
-        return None, 0
+        log("catalog needs a TMDB key (language, storyline, availability). Add one to config.json.")
+        return []
+    con.execute("CREATE TABLE IF NOT EXISTS digest_history "
+                "(tconst TEXT PRIMARY KEY, first_surfaced TEXT)")
+    rows = catalog_rows(con, cfg)
+    n_movies = sum(1 for r in rows if r[3] == "m")
+    log(f"catalog: {n_movies} movie + {len(rows) - n_movies} show candidates; resolving TMDB details ...")
+    info = enrich_tmdb3(con, cfg, [r[0] for r in rows], workers=cfg["browse_workers"])
     baselines = build_tmdb_baselines(con, cfg)
-    intl = baselines.get("intl") or {"vmin": 200, "m": 800, "c": 7.0, "p90": 10000, "n": 0}
-    cur_year = datetime.now().year
-    params = [cfg["rating_threshold"], cfg["browse_vote_floor"]]
-    year_sql = ""
-    if not all_time:
-        year_sql = "AND t.start_year >= ? "
-        params.append(cur_year - cfg["recent_years"] + 1)
-    params.append(cfg["browse_cap"])
-    rows = con.execute(
-        "SELECT t.tconst, t.primary_title, t.original_title, t.start_year, t.genres, "
-        "r.avg_rating, r.num_votes "
-        "FROM titles t JOIN ratings r ON r.tconst = t.tconst "
-        "WHERE r.avg_rating >= ? AND r.num_votes >= ? " + year_sql +
-        "ORDER BY r.avg_rating DESC, r.num_votes DESC LIMIT ?", params).fetchall()
-    log(f"browse: {len(rows)} candidate films (all_time={all_time}); resolving language + availability ...")
-    info = enrich_tmdb(con, cfg, [r[0] for r in rows], with_providers=True, workers=cfg["browse_workers"])
 
-    sent = {}
-    try:
-        for tc, ts, div, conf, verdict in con.execute(
-                "SELECT tconst, ts, div, conf, verdict FROM sentiment WHERE n>0"):
-            sent[tc] = {"ts": ts, "div": div, "c": conf, "v": verdict}
-    except sqlite3.OperationalError:
-        pass  # sentiment engine not run yet
-
-    films, plat_count, lang_count = [], Counter(), Counter()
-    for r in rows:
-        rec = info.get(r[0])
+    films = []
+    for tc, pt, ot, k_imdb, sy, ey, genres_s, ar, nv in rows:
+        rec = info.get(tc)
         if not rec or not rec.get("lang"):
             continue
+        kind = rec.get("kind") or k_imdb        # TMDB's movie/tv split is authoritative
         bucket, market = lang_to_bucket(rec["lang"])
-        bl = baselines.get(bucket, intl)
-        tv = rec.get("votes", 0) or 0
-        pct = round(approx_pct(bl, tv)) if tv > 0 else 0
-        offers = rec.get("offers", [])
-        st = sorted({o["name"] for o in offers if o["type"] in ("flatrate", "free", "ads")})
-        rb = sorted({o["name"] for o in offers if o["type"] in ("rent", "buy")})
-        for p in st:
-            plat_count[p] += 1
-        lang_count[bucket] += 1
-        genres = [g for g in (r[4] or "").split(",") if g]
-        film = {"t": r[0], "n": r[1] or r[2], "y": r[3] or 0, "l": bucket,
-                "ln": LANG_NAMES.get(bucket, bucket), "mk": market,
-                "r": round(r[5], 1), "v": r[6], "p": pct, "s": st, "b": rb, "g": genres}
-        if r[0] in sent:
-            film["se"] = sent[r[0]]
+        bl = (baselines.get((bucket, kind)) or baselines.get(("intl", kind))
+              or CATALOG_FALLBACK_BL[kind])
+        tv_votes = rec.get("votes", 0) or 0
+        pct = round(approx_pct(bl, tv_votes)) if tv_votes > 0 else 0
+        offers = rec.get("offers") or []
+        film = {"t": tc, "k": kind, "n": pt or ot or tc,
+                "y": sy or rec.get("y1") or 0}
+        if not film["y"]:
+            continue    # unknown-year titles break year filters/sorts; skip the junk
+        if kind == "s":
+            y2 = ey                              # IMDb end year; None/null = ongoing
+            if y2 is None and rec.get("status") in ("Ended", "Canceled"):
+                y2 = rec.get("y2")               # TMDB last-air year when IMDb lags
+            film["y2"] = y2
+        film.update({
+            "l": bucket, "ln": LANG_NAMES.get(bucket, bucket), "mk": market,
+            "r": round(ar, 1), "v": nv, "p": pct,
+            "g": [g for g in (genres_s or "").split(",") if g]})
+        if rec.get("rating"):
+            film["tr"] = round(rec["rating"], 1)     # TMDB rating (vote_average)
+        snip = snippet(rec.get("overview"))
+        if snip:
+            film["o"] = snip
+        countries = country_display(rec.get("countries") or [])
+        if countries:
+            film["c"] = countries
+        film["img"] = rec.get("poster") or ""
+        film["s"] = sorted({o["name"] for o in offers if o["type"] in ("flatrate", "free", "ads")})
+        film["b"] = sorted({o["name"] for o in offers if o["type"] in ("rent", "buy")})
         films.append(film)
     films.sort(key=lambda f: (-f["r"], -f["v"]))
-    years = [f["y"] for f in films if f["y"]] or [cur_year]
-    meta = {"count": len(films), "date": date.today().isoformat(), "all_time": all_time,
-            "cur_year": cur_year, "year_min": min(years), "year_max": max(years),
-            "threshold": cfg["rating_threshold"],
-            "supa_url": cfg.get("supabase_url", ""), "supa_key": cfg.get("supabase_anon_key", "")}
+
+    # first_surfaced: reuse digest_history semantics for ALL emitted titles -> fs/nw.
+    # CI rebuilds the DB from scratch each run, so first seed history from the PREVIOUS
+    # deploy's data.js (the workflow curls it to prev-data.js) - else every title would
+    # be "NEW" every week.
+    prev_path = os.path.join(HERE, "prev-data.js")
+    if os.path.exists(prev_path):
+        try:
+            raw = open(prev_path, encoding="utf-8").read()
+            payload = raw[raw.index("{"):raw.rindex("}") + 1]
+            prev = json.loads(payload.replace("<\\/", "</"))
+            seed = [(t["t"], t["fs"]) for t in prev.get("titles", []) if t.get("fs")]
+            con.executemany("INSERT OR IGNORE INTO digest_history VALUES(?,?)", seed)
+            log(f"seeded first_surfaced for {len(seed)} titles from previous deploy")
+        except (ValueError, KeyError, OSError) as e:
+            log(f"warning: could not parse prev-data.js ({e}); NEW badges may over-fire")
+    today = date.today().isoformat()
+    con.executemany("INSERT OR IGNORE INTO digest_history VALUES(?,?)",
+                    [(f["t"], today) for f in films])
+    con.commit()
+    fs_map = dict(con.execute("SELECT tconst, first_surfaced FROM digest_history"))
+    for f in films:
+        fs = fs_map.get(f["t"]) or today
+        f["fs"] = fs
+        try:
+            age = (date.fromisoformat(today) - date.fromisoformat(fs)).days
+        except ValueError:
+            age = -1
+        if 0 <= age <= 8:
+            f["nw"] = 1
+    n_shows = sum(1 for f in films if f["k"] == "s")
+    log(f"catalog: {len(films) - n_shows} movies + {n_shows} shows made the cut")
+    return films
+
+
+def attach_sentiment(con, films):
+    sent = {}
+    try:
+        for tc, ts, dv, conf, verdict in con.execute(
+                "SELECT tconst, ts, div, conf, verdict FROM sentiment WHERE n>0"):
+            sent[tc] = {"ts": ts, "div": dv, "v": verdict, "c": conf}
+    except sqlite3.OperationalError:
+        return  # sentiment engine not run yet
+    for f in films:
+        if f["t"] in sent:
+            f["se"] = sent[f["t"]]
+
+
+def write_data_js(films, cfg):
     os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, "browse.html")
+    payload = {"built": date.today().isoformat(),
+               "threshold": cfg["rating_threshold"], "titles": films}
+    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    path = os.path.join(OUT_DIR, "data.js")
     with open(path, "w", encoding="utf-8") as f:
-        f.write(render_browse_html(films, plat_count, lang_count, meta))
-    log(f"browse dashboard written: {path} ({len(films)} films)")
-    return path, len(films)
+        f.write("window.MF_DATA=" + data + ";\n")
+    log(f"data payload written: {path} ({len(films)} titles)")
 
 
-def render_browse_html(films, plat_count, lang_count, meta):
-    esc = html_lib.escape
-    data = json.dumps(films, ensure_ascii=False).replace("</", "<\\/")
-    order = ["ml", "ta", "te", "kn", "bn", "mr", "hi", "pa", "gu", "or", "as", "other_in", "intl"]
-    lang_chips = "".join(
-        f'<button class="chip" data-k="lang" data-v="{b}">{esc(LANG_NAMES.get(b, b))}'
-        f'<span class="n">{lang_count[b]}</span></button>'
-        for b in order if b in lang_count)
-    plat_chips = "".join(
-        f'<button class="chip" data-k="plat" data-v="{esc(p)}">{esc(p)}'
-        f'<span class="n">{c}</span></button>' for p, c in plat_count.most_common(16))
-    scope = "all-time" if meta["all_time"] else f"{meta['cur_year'] - 1}-{meta['cur_year']}"
-    return (BROWSE_TEMPLATE
-            .replace("__DATA__", data)
-            .replace("__LANG_CHIPS__", lang_chips)
-            .replace("__PLAT_CHIPS__", plat_chips)
-            .replace("__COUNT__", str(meta["count"]))
-            .replace("__SCOPE__", scope)
-            .replace("__DATE__", meta["date"])
-            .replace("__YEARMIN__", str(meta["year_min"]))
-            .replace("__YEARMAX__", str(meta["year_max"]))
-            .replace("__THRESH__", str(meta["threshold"]))
-            .replace("__SUPA_URL__", meta.get("supa_url", ""))
-            .replace("__SUPA_KEY__", meta.get("supa_key", "")))
+# --------------------------------------------------------------------------- #
+# 9. app shell (templates/app.html -> out/index.html) + full site build
+# --------------------------------------------------------------------------- #
+REDIRECT_STUB = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=index.html">
+<script>location.replace("index.html");</script>
+<title>Movie Finder</title></head>
+<body><p>Moved &mdash; <a href="index.html">continue to Movie Finder</a>.</p></body></html>
+'''
 
-
-BROWSE_TEMPLATE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+PLACEHOLDER_TEMPLATE = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Movie Finder - Browse</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<style>
-:root{--bg:#f6f6f8;--card:#fff;--ink:#1b1d22;--muted:#5c616c;--faint:#8a8f9a;--line:#e4e5eb;
---accent:#a3172e;--accent-soft:#fbeef0;--good:#12452b;--good-bg:#e5f4ec;--chipbg:#eeeef2;}
-@media (prefers-color-scheme:dark){:root{--bg:#121317;--card:#1c1e24;--ink:#e8e8ec;--muted:#a6aab4;
---faint:#787d88;--line:#2c2f37;--accent:#e56a7c;--accent-soft:#331f27;--good:#7ee0aa;--good-bg:#16311f;--chipbg:#262932;}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
-.wrap{max-width:1180px;margin:0 auto;padding:24px 18px 80px}
-.eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
-h1{font-family:Georgia,serif;font-size:30px;margin:6px 0 4px}
-.sub{color:var(--muted);margin:0 0 12px;font-size:14px}
-.sub b{color:var(--ink);font-variant-numeric:tabular-nums}
-.pbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:13px;color:var(--muted)}
-.pbar select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:13px}
-.pbar .mini{padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--muted);cursor:pointer;font-size:12.5px}
-.pbar .mini:hover{color:var(--accent);border-color:var(--accent)}
-.pbar .tastesum{color:var(--faint);font-size:12px}
-.controls{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;border-bottom:1px solid var(--line);margin-bottom:16px}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
-.search{flex:1;min-width:200px;padding:9px 13px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:14px}
-.select,.clearbtn{padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:13px;cursor:pointer}
-.rng{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
-.rng b{color:var(--ink);font-variant-numeric:tabular-nums;min-width:26px}
-.rng input[type=range]{accent-color:var(--accent)}
-.yr{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
-.ynum{width:64px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:13px}
-.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;white-space:nowrap}
-.chk input{accent-color:var(--accent)}
-.clearbtn:hover{color:var(--accent);border-color:var(--accent)}
-.fbadge{display:inline-block;background:var(--accent);color:#fff;border-radius:999px;padding:0 7px;font-size:11px;font-weight:700;margin-left:5px;font-variant-numeric:tabular-nums}
-@media (max-width:760px){.fpanel{max-height:52vh;overflow-y:auto;padding-bottom:6px}}
-.chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}
-.chip{border:1px solid var(--line);background:var(--chipbg);color:var(--muted);border-radius:999px;padding:5px 11px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s}
-.chip:hover{border-color:var(--accent);color:var(--ink)}
-.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.chip .n{font-size:10.5px;opacity:.7;font-variant-numeric:tabular-nums}
-.chip.active .n{opacity:.85}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:10px}
-.card{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 13px;transition:.12s}
-.card:hover{border-color:var(--accent)}
-.sc{font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--accent);min-width:40px;text-align:center;font-variant-numeric:tabular-nums;padding-top:1px}
-.cbody{min-width:0;flex:1}
-.ct{font-weight:650;font-size:15px;line-height:1.25}
-.ct a{color:inherit;text-decoration:none}
-.ct a:hover{color:var(--accent)}
-.cy{color:var(--faint);font-weight:400;font-size:13px}
-.match{display:inline-block;background:var(--accent);color:#fff;border-radius:5px;padding:0 6px;font-size:10.5px;font-weight:700;margin-left:4px;vertical-align:middle}
-.match.lo{background:var(--chipbg);color:var(--muted)}
-.cm{font-size:12.5px;color:var(--muted);margin:3px 0 6px;font-variant-numeric:tabular-nums}
-.lchip{display:inline-block;background:var(--accent-soft);color:var(--accent);border-radius:5px;padding:0 6px;font-size:11px;font-weight:600;margin-right:2px}
-.cprov{display:flex;flex-wrap:wrap;gap:4px}
-.pv{font-size:11px;border-radius:5px;padding:2px 7px;font-weight:600}
-.pv.stream{background:var(--good-bg);color:var(--good)}
-.pv.rent{background:var(--chipbg);color:var(--muted)}
-.pv.none{background:transparent;color:var(--faint);font-weight:400;padding-left:0}
-.acts{display:flex;gap:5px;margin-top:8px}
-.act{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:7px;padding:3px 9px;font-size:12px;cursor:pointer;line-height:1.5}
-.act:hover{border-color:var(--accent);color:var(--ink)}
-.act.like.on{background:var(--good-bg);color:var(--good);border-color:var(--good)}
-.act.dislike.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
-.act.seen.on{background:var(--chipbg);color:var(--ink);border-color:var(--faint)}
-.act.save.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.sen{font-size:12px;color:var(--muted);margin:1px 0 6px}
-.sen b{color:var(--ink)}
-.sd{display:inline-block;border-radius:5px;padding:0 6px;font-size:10.5px;font-weight:700;margin-left:5px}
-.sd.up{background:var(--good-bg);color:var(--good)}
-.sd.down{background:var(--accent-soft);color:var(--accent)}
-.note{color:var(--faint);font-size:12.5px;margin:14px 2px}
-.empty{text-align:center;color:var(--muted);padding:60px 20px}
-.empty a{color:var(--accent)}
-footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-size:11.5px;color:var(--faint)}
-</style></head><body><div class="wrap">
-<div class="eyebrow">Movie Finder &middot; updated __DATE__</div>
-<h1>Browse the good stuff</h1>
-<p class="sub"><b id="count">__COUNT__</b> of __COUNT__ films &middot; __SCOPE__ &middot; __THRESH__+ IMDb, judged against each language's own vote baseline</p>
-<div class="pbar">
-  <span>Profile:</span>
-  <select id="profile"></select>
-  <button id="newp" class="mini">+ New profile</button>
-  <button id="renp" class="mini">Rename</button>
-  <button id="delp" class="mini">Delete</button>
-  <button id="gsin" class="mini" hidden>Sign in with Google</button>
-  <span id="whoami" class="tastesum"></span>
-  <button id="gsout" class="mini" hidden>Sign out</button>
-  <span id="tastesum" class="tastesum"></span>
-</div>
-<div class="controls">
-  <div class="row">
-    <input id="q" class="search" type="search" placeholder="Search a title...">
-    <select id="sort" class="select">
-      <option value="rating">Sort: Rating</option>
-      <option value="foryou">Sort: For You (personalized)</option>
-      <option value="year">Sort: Newest</option>
-      <option value="sig">Sort: Category significance</option>
-      <option value="sen">Sort: Viewer sentiment</option>
-      <option value="votes">Sort: Most rated</option>
-    </select>
-    <button id="fbtn" class="select">Filters<span id="fcount" class="fbadge" hidden></span></button>
-  </div>
-  <div id="fpanel" class="fpanel">
-  <div class="row">
-    <label class="rng">Min rating <b id="minRv">__THRESH__</b>
-      <input id="minR" type="range" min="__THRESH__" max="9.5" step="0.1" value="__THRESH__"></label>
-    <label class="yr">Year <input id="ymin" type="number" class="ynum" value="__YEARMIN__">
-      &ndash; <input id="ymax" type="number" class="ynum" value="__YEARMAX__"></label>
-    <label class="chk"><input id="streamOnly" type="checkbox"> Streaming now</label>
-    <label class="chk"><input id="hideIntl" type="checkbox"> Indian only</label>
-    <label class="chk"><input id="savedOnly" type="checkbox"> Saved</label>
-    <label class="chk"><input id="hideSeen" type="checkbox"> Hide seen</label>
-    <label class="chk"><input id="reviewedOnly" type="checkbox"> Reviewed</label>
-    <button id="clear" class="clearbtn">Clear</button>
-  </div>
-  <div class="chips" id="langChips">__LANG_CHIPS__</div>
-  <div class="chips" id="platChips">__PLAT_CHIPS__</div>
-  </div>
-</div>
-<div id="note" class="note" hidden></div>
-<div id="grid" class="grid"></div>
-<div id="empty" class="empty" hidden>No films match these filters. <a href="#" id="reset">Clear filters</a></div>
-<footer>Like / dislike / seen / save are stored privately in this browser (per profile) &mdash; nothing leaves your machine.
-Ratings &amp; votes: IMDb (used with permission). Language &amp; availability: TMDB / JustWatch. Movie Finder Phase 0.</footer>
-</div>
-<script>
-const FILMS=__DATA__;
-const Y0=__YEARMIN__, Y1=__YEARMAX__, R0=__THRESH__;
-const $=s=>document.querySelector(s);
-const BYID={};FILMS.forEach(f=>BYID[f.t]=f);
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-
-/* ---- profiles + saved state (localStorage) ---- */
-function lget(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}}
-function lset(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
-let PROFILES=lget("mf_profiles",["Me"]);
-let ACTIVE=lget("mf_active","Me");
-if(!PROFILES.includes(ACTIVE)){ACTIVE=PROFILES[0]||"Me";}
-
-/* ---- optional cloud sync (Supabase + Google sign-in) ---- */
-const SUPA_URL="__SUPA_URL__",SUPA_KEY="__SUPA_KEY__";
-let sb=null,CLOUD=null,pushT=null;
-try{if(SUPA_URL.indexOf("http")===0&&SUPA_KEY&&typeof supabase!=="undefined"){sb=supabase.createClient(SUPA_URL,SUPA_KEY);}}catch(e){}
-function dkey(){return CLOUD?("mf_data_cloud_"+CLOUD.id):("mf_data_"+ACTIVE);}
-let U=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
-function cloudPush(){if(!sb||!CLOUD)return;clearTimeout(pushT);
-  pushT=setTimeout(async()=>{try{await sb.from("taste").upsert(
-    {user_id:CLOUD.id,display_name:CLOUD.name,data:U,updated_at:new Date().toISOString()});}catch(e){}},1200);}
-function saveU(){lset(dkey(),U);cloudPush();}
-function mergeData(local,cloud){const out={like:{},dislike:{},seen:{},save:{}};
-  ["like","dislike","seen","save"].forEach(k=>Object.assign(out[k],(cloud&&cloud[k])||{},(local&&local[k])||{}));
-  Object.keys(out.like).forEach(t=>{delete out.dislike[t];});return out;}
-function renderAuthUI(){const on=!!CLOUD;
-  ["#profile","#newp","#renp","#delp"].forEach(s=>{const e=$(s);if(e)e.hidden=on;});
-  $("#gsin").hidden=on||!sb;$("#gsout").hidden=!on;
-  $("#whoami").textContent=on?("Syncing as "+(CLOUD.name||CLOUD.email||"you")):"";}
-async function cloudLogin(user){
-  CLOUD={id:user.id,email:user.email,
-    name:(user.user_metadata&&(user.user_metadata.full_name||user.user_metadata.name))||user.email};
-  let cloud=null;
-  try{const r=await sb.from("taste").select("data").eq("user_id",CLOUD.id).maybeSingle();
-    cloud=r&&r.data&&r.data.data;}catch(e){}
-  const cache=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
-  const guest=cloud?null:lget("mf_data_"+ACTIVE,{like:{},dislike:{},seen:{},save:{}}); // adopt guest data on first login
-  U=mergeData(mergeData(cache,guest),cloud);
-  saveU();renderAuthUI();computeTaste();updateSummary();if(hasTaste())setSort("foryou");apply();}
-function cloudLogout(){CLOUD=null;U=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});
-  renderAuthUI();computeTaste();updateSummary();apply();}
-
-/* ---- taste model (content-based over genre / language / decade) ---- */
-let taste={g:{},l:{},d:{}};
-function norm(o){let m=0;for(const k in o)m=Math.max(m,Math.abs(o[k]));if(m>0)for(const k in o)o[k]/=m;}
-function computeTaste(){
-  taste={g:{},l:{},d:{}};
-  const bump=(f,w)=>{(f.g||[]).forEach(g=>taste.g[g]=(taste.g[g]||0)+w);
-    taste.l[f.l]=(taste.l[f.l]||0)+w;const dc=Math.floor((f.y||0)/10)*10;taste.d[dc]=(taste.d[dc]||0)+w;};
-  Object.keys(U.like).forEach(t=>BYID[t]&&bump(BYID[t],1));
-  Object.keys(U.dislike).forEach(t=>BYID[t]&&bump(BYID[t],-1.2));
-  norm(taste.g);norm(taste.l);norm(taste.d);
-}
-function hasTaste(){return Object.keys(U.like).length>0;}
-function raw(f){let s=0;const g=f.g||[];
-  if(g.length){let t=0;g.forEach(x=>t+=(taste.g[x]||0));s+=t/g.length;}
-  s+=1.3*(taste.l[f.l]||0);const dc=Math.floor((f.y||0)/10)*10;s+=0.4*(taste.d[dc]||0);return s;}
-function matchPct(f){if(!hasTaste())return null;return Math.round(100/(1+Math.exp(-1.5*raw(f))));}
-function matchWhy(f){let best=null,bv=0;(f.g||[]).forEach(g=>{if((taste.g[g]||0)>bv){bv=taste.g[g];best=g;}});
-  return best?("matches your taste for "+best):"based on your likes";}
-
-const state={q:"",sort:"rating",minR:R0,ymin:Y0,ymax:Y1,streamOnly:false,hideIntl:false,savedOnly:false,hideSeen:false,reviewedOnly:false,langs:new Set(),plats:new Set()};
-
-function badges(f){
-  if(f.s.length) return f.s.map(p=>`<span class="pv stream">${esc(p)}</span>`).join("");
-  if(f.b.length) return f.b.map(p=>`<span class="pv rent">${esc(p)}</span>`).join("");
-  return `<span class="pv none">not on tracked Indian OTTs</span>`;
-}
-function ab(k,label,t){const on=U[k][t]?" on":"";return `<button class="act ${k}${on}" data-act="${k}" data-t="${t}">${label}</button>`;}
-function senLine(f){
-  if(!f.se)return "";
-  const badge=f.se.div>=1.5?`<span class="sd up">viewers rate it higher</span>`:"";
-  return `<div class="sen">TMDB viewers <b>${f.se.ts}</b>/10 &middot; ${esc(f.se.v)}${badge}</div>`;
-}
-function card(f){
-  const sig=f.p>=50?`top ${Math.max(1,100-f.p)}% of ${esc(f.ln)}`:esc(f.ln);
-  const m=matchPct(f);
-  const mb=m!=null?`<span class="match ${m<50?"lo":""}" title="${esc(matchWhy(f))}">${m}% match</span>`:"";
-  return `<div class="card">
-    <div class="sc">${f.r.toFixed(1)}</div>
-    <div class="cbody">
-      <div class="ct"><a href="https://www.imdb.com/title/${f.t}/" target="_blank" rel="noopener">${esc(f.n)}</a> <span class="cy">${f.y||""}</span>${mb}</div>
-      <div class="cm"><span class="lchip">${esc(f.ln)}</span>${f.v.toLocaleString()} votes &middot; ${sig}</div>
-      ${senLine(f)}
-      <div class="cprov">${badges(f)}</div>
-      <div class="acts">${ab("like","Like",f.t)}${ab("dislike","Not for me",f.t)}${ab("seen","Seen",f.t)}${ab("save","Save",f.t)}</div>
-    </div></div>`;
-}
-const SORT={rating:(a,b)=>b.r-a.r||b.v-a.v,foryou:(a,b)=>raw(b)-raw(a)||b.r-a.r,
-  year:(a,b)=>b.y-a.y||b.r-a.r,sig:(a,b)=>b.p-a.p||b.r-a.r,
-  sen:(a,b)=>((b.se?b.se.ts:-1)-(a.se?a.se.ts:-1))||b.r-a.r,votes:(a,b)=>b.v-a.v};
-function apply(){
-  const q=state.q.toLowerCase();
-  let out=FILMS.filter(f=>f.r>=state.minR
-    &&(!q||f.n.toLowerCase().includes(q))
-    &&(f.y>=state.ymin&&f.y<=state.ymax)
-    &&(!state.streamOnly||f.s.length>0)
-    &&(!state.hideIntl||f.mk==="indian")
-    &&(!state.savedOnly||U.save[f.t])
-    &&(!state.hideSeen||!U.seen[f.t])
-    &&(!state.reviewedOnly||f.se)
-    &&(!state.langs.size||state.langs.has(f.l))
-    &&(!state.plats.size||f.s.some(p=>state.plats.has(p))));
-  out.sort(SORT[state.sort]);
-  $("#count").textContent=out.length;
-  const fc=filterCount(),fb=$("#fcount");if(fb){fb.hidden=fc===0;fb.textContent=fc;}
-  $("#grid").innerHTML=out.slice(0,600).map(card).join("");
-  $("#empty").hidden=out.length>0;
-  const note=$("#note");
-  if(out.length>600){note.hidden=false;note.textContent=`Showing the first 600 of ${out.length} - narrow with filters or search to see the rest.`;}
-  else note.hidden=true;
-}
-function updateSummary(){
-  const nl=Object.keys(U.like).length,ns=Object.keys(U.seen).length,nv=Object.keys(U.save).length;
-  $("#tastesum").textContent=nl?`${nl} liked · ${ns} seen · ${nv} saved`:"Like a few films (buttons on each card) to get personalized picks";
-}
-function renderProfiles(){$("#profile").innerHTML=PROFILES.map(p=>`<option${p===ACTIVE?" selected":""}>${esc(p)}</option>`).join("");}
-function setSort(v){state.sort=v;$("#sort").value=v;}
-function switchProfile(){U=lget(dkey(),{like:{},dislike:{},seen:{},save:{}});computeTaste();updateSummary();
-  setSort(hasTaste()?"foryou":"rating");apply();}
-
-$("#grid").addEventListener("click",e=>{
-  const b=e.target.closest(".act");if(!b)return;
-  const k=b.dataset.act,t=b.dataset.t;
-  if(U[k][t]){delete U[k][t];}else{U[k][t]=1;if(k==="like")delete U.dislike[t];if(k==="dislike")delete U.like[t];}
-  saveU();computeTaste();updateSummary();apply();
-});
-$("#profile").addEventListener("change",e=>{ACTIVE=e.target.value;lset("mf_active",ACTIVE);switchProfile();});
-$("#newp").addEventListener("click",()=>{const n=(prompt("Name this profile:")||"").trim();if(!n)return;
-  if(!PROFILES.includes(n)){PROFILES.push(n);lset("mf_profiles",PROFILES);}
-  ACTIVE=n;lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
-$("#renp").addEventListener("click",()=>{
-  const n=(prompt("Rename profile '"+ACTIVE+"' to:",ACTIVE)||"").trim();
-  if(!n||n===ACTIVE)return;
-  if(PROFILES.includes(n)){alert("A profile named '"+n+"' already exists.");return;}
-  lset("mf_data_"+n,lget(dkey(),{like:{},dislike:{},seen:{},save:{}}));   // move data old -> new
-  try{localStorage.removeItem(dkey());}catch(e){}
-  PROFILES[PROFILES.indexOf(ACTIVE)]=n;lset("mf_profiles",PROFILES);
-  ACTIVE=n;lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
-$("#delp").addEventListener("click",()=>{
-  if(!confirm("Delete profile '"+ACTIVE+"' and its likes, saves and history?"))return;
-  try{localStorage.removeItem(dkey());}catch(e){}
-  PROFILES=PROFILES.filter(p=>p!==ACTIVE);
-  if(!PROFILES.length)PROFILES=["Me"];
-  lset("mf_profiles",PROFILES);
-  ACTIVE=PROFILES[0];lset("mf_active",ACTIVE);renderProfiles();switchProfile();});
-$("#q").addEventListener("input",e=>{state.q=e.target.value;apply();});
-$("#sort").addEventListener("change",e=>{state.sort=e.target.value;apply();});
-$("#minR").addEventListener("input",e=>{state.minR=+e.target.value;$("#minRv").textContent=(+e.target.value).toFixed(1);apply();});
-$("#ymin").addEventListener("input",e=>{state.ymin=+e.target.value||0;apply();});
-$("#ymax").addEventListener("input",e=>{state.ymax=+e.target.value||9999;apply();});
-$("#streamOnly").addEventListener("change",e=>{state.streamOnly=e.target.checked;apply();});
-$("#hideIntl").addEventListener("change",e=>{state.hideIntl=e.target.checked;apply();});
-$("#savedOnly").addEventListener("change",e=>{state.savedOnly=e.target.checked;apply();});
-$("#hideSeen").addEventListener("change",e=>{state.hideSeen=e.target.checked;apply();});
-$("#reviewedOnly").addEventListener("change",e=>{state.reviewedOnly=e.target.checked;apply();});
-document.querySelectorAll(".chip").forEach(ch=>ch.addEventListener("click",()=>{
-  const set=ch.dataset.k==="lang"?state.langs:state.plats, v=ch.dataset.v;
-  if(set.has(v)){set.delete(v);ch.classList.remove("active");}else{set.add(v);ch.classList.add("active");}
-  apply();
-}));
-function resetAll(){
-  state.q="";$("#q").value="";state.minR=R0;$("#minR").value=R0;$("#minRv").textContent=R0.toFixed(1);
-  state.ymin=Y0;$("#ymin").value=Y0;state.ymax=Y1;$("#ymax").value=Y1;
-  state.streamOnly=false;$("#streamOnly").checked=false;state.hideIntl=false;$("#hideIntl").checked=false;
-  state.savedOnly=false;$("#savedOnly").checked=false;state.hideSeen=false;$("#hideSeen").checked=false;
-  state.reviewedOnly=false;$("#reviewedOnly").checked=false;
-  state.langs.clear();state.plats.clear();
-  document.querySelectorAll(".chip.active").forEach(c=>c.classList.remove("active"));apply();
-}
-$("#clear").addEventListener("click",resetAll);
-$("#reset").addEventListener("click",e=>{e.preventDefault();resetAll();});
-function filterCount(){let n=0;
-  if(state.minR>R0)n++;
-  if(state.ymin>Y0||state.ymax<Y1)n++;
-  if(state.streamOnly)n++;if(state.hideIntl)n++;if(state.savedOnly)n++;if(state.hideSeen)n++;if(state.reviewedOnly)n++;
-  return n+state.langs.size+state.plats.size;}
-let fOpen=(typeof window!=="undefined"&&window.innerWidth>=760);   // collapsed by default on phones
-$("#fpanel").hidden=!fOpen;
-$("#fbtn").addEventListener("click",()=>{fOpen=!fOpen;$("#fpanel").hidden=!fOpen;});
-$("#gsin").addEventListener("click",()=>{if(!sb)return;
-  sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});});
-$("#gsout").addEventListener("click",async()=>{try{await sb.auth.signOut();}catch(e){}cloudLogout();});
-if(sb){
-  sb.auth.onAuthStateChange((ev,session)=>{const u=session&&session.user;
-    if(u&&(!CLOUD||CLOUD.id!==u.id))cloudLogin(u);
-    if(!u&&CLOUD)cloudLogout();});
-  sb.auth.getSession().then(r=>{const u=r&&r.data&&r.data.session&&r.data.session.user;if(u)cloudLogin(u);}).catch(()=>{});
-}
-renderAuthUI();
-renderProfiles();computeTaste();updateSummary();if(hasTaste())setSort("foryou");apply();
-</script></body></html>'''
+<title>Movie Finder</title></head>
+<body style="font-family:'Segoe UI',system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 20px">
+<h1>Movie Finder</h1>
+<p>Built __BUILT__. The app template (<code>templates/app.html</code>) was missing from
+this build, so this placeholder page was published instead. The catalog data itself is in
+<a href="data.js">data.js</a>. Restore <code>templates/app.html</code> and re-run
+<code>python movie_finder.py site</code>.</p>
+</body></html>
+'''
 
 
-# --------------------------------------------------------------------------- #
-# 9. landing page + full site build (for GitHub Pages)
-# --------------------------------------------------------------------------- #
-def build_landing(cfg):
+def build_app_shell(cfg):
+    """out/index.html from templates/app.html (placeholder if missing, so the build
+    never hard-fails) + redirect stubs for the retired v1 pages."""
     os.makedirs(OUT_DIR, exist_ok=True)
+    tpl_path = os.path.join(HERE, "templates", "app.html")
+    if os.path.exists(tpl_path):
+        with open(tpl_path, "r", encoding="utf-8") as f:
+            tpl = f.read()
+    else:
+        log("warning: templates/app.html is missing - publishing a placeholder index.html")
+        tpl = PLACEHOLDER_TEMPLATE
+    html_doc = (tpl.replace("__BUILT__", date.today().isoformat())
+                   .replace("__THRESH__", str(cfg["rating_threshold"]))
+                   .replace("__SUPA_URL__", cfg.get("supabase_url", ""))
+                   .replace("__SUPA_KEY__", cfg.get("supabase_anon_key", "")))
     with open(os.path.join(OUT_DIR, "index.html"), "w", encoding="utf-8") as f:
-        f.write(LANDING_TEMPLATE.replace("__DATE__", date.today().isoformat()))
+        f.write(html_doc)
+    for stub in ("browse.html", "digest-latest.html"):   # old family bookmarks
+        with open(os.path.join(OUT_DIR, stub), "w", encoding="utf-8") as f:
+            f.write(REDIRECT_STUB)
     open(os.path.join(OUT_DIR, ".nojekyll"), "w").close()   # serve files as-is on Pages
-    log(f"landing page written: {os.path.join(OUT_DIR, 'index.html')}")
+    log(f"app shell written: {os.path.join(OUT_DIR, 'index.html')} (+ redirect stubs)")
+
+
+def build_app(con, cfg, with_sentiment=False):
+    """Catalog -> data.js, then index.html + redirect stubs."""
+    films = build_catalog(con, cfg)
+    if with_sentiment and films:
+        build_sentiment(con, cfg)               # after enrichment so tmdb_cache3 routes m/s
+    attach_sentiment(con, films)
+    write_data_js(films, cfg)
+    build_app_shell(cfg)
+    return films
 
 
 def build_site(con, cfg, use_tmdb=True):
-    """Full weekly build for publishing: digest + sentiment + browse + landing."""
-    build_digest(con, cfg, use_tmdb=use_tmdb)
-    build_sentiment(con, cfg)
-    build_browse(con, cfg, all_time=True)
-    build_landing(cfg)
-
-
-LANDING_TEMPLATE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Movie Finder</title>
-<style>
-:root{--bg:#f6f6f8;--card:#fff;--ink:#1b1d22;--muted:#5c616c;--faint:#8a8f9a;--line:#e4e5eb;
---accent:#a3172e;--accent-soft:#fbeef0;}
-@media (prefers-color-scheme:dark){:root{--bg:#121317;--card:#1c1e24;--ink:#e8e8ec;--muted:#a6aab4;
---faint:#787d88;--line:#2c2f37;--accent:#e56a7c;--accent-soft:#331f27;}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif}
-.wrap{max-width:720px;margin:0 auto;padding:64px 20px 80px}
-.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600}
-h1{font-family:Georgia,serif;font-size:44px;margin:10px 0 8px;letter-spacing:-.01em}
-.tag{color:var(--muted);font-size:18px;margin:0 0 40px;max-width:34ch}
-.cards{display:grid;gap:14px}
-a.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;
-padding:24px 26px;text-decoration:none;color:inherit;transition:.14s}
-a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
-.ct{font-family:Georgia,serif;font-size:23px;margin:0 0 4px}
-.cd{color:var(--muted);font-size:14.5px;margin:0}
-.arrow{color:var(--accent);font-weight:700}
-footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
-</style></head><body><div class="wrap">
-<div class="eyebrow">Updated __DATE__</div>
-<h1>Movie Finder</h1>
-<p class="tag">Genuinely good movies &mdash; Indian and international &mdash; and where to watch them in India.</p>
-<div class="cards">
-  <a class="card" href="digest-latest.html">
-    <div class="ct">This week&rsquo;s picks <span class="arrow">&rarr;</span></div>
-    <p class="cd">A short, curated list of genuinely good recent releases, judged against each language&rsquo;s own vote baseline, with where to stream them.</p>
-  </a>
-  <a class="card" href="browse.html">
-    <div class="ct">Browse everything <span class="arrow">&rarr;</span></div>
-    <p class="cd">The full all-time catalogue &mdash; filter by language, OTT platform, year and rating, search, and get personalised picks (each person can have their own profile).</p>
-  </a>
-</div>
-<footer>Ratings &amp; votes: IMDb (used with permission). Language, availability &amp; reviews: TMDB / JustWatch.
-Built with Movie Finder. Refreshed automatically each week.</footer>
-</div></body></html>'''
+    """Full weekly build for publishing: digest (email/Telegram path) + the app.
+    The digest HTML pages still get written, but out/digest-latest.html and
+    out/browse.html end up as redirect stubs to index.html (the app IS the site)."""
+    build_digest(con, cfg, use_tmdb=use_tmdb)   # dated digest files + Telegram text source
+    build_app(con, cfg, with_sentiment=True)    # data.js + index.html + redirect stubs
 
 
 # --------------------------------------------------------------------------- #
@@ -1714,7 +1541,7 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    ap = argparse.ArgumentParser(description="Movie Finder - Phase 0 personal weekly digest")
+    ap = argparse.ArgumentParser(description="Movie Finder - weekly digest + static discovery app")
     ap.add_argument("command", nargs="?", default="run",
                     choices=["run", "fetch", "build", "digest", "send", "all",
                              "tmdb-selftest", "tmdb-baselines", "browse", "sentiment",
@@ -1750,8 +1577,8 @@ def main():
         build_sentiment(con, cfg)
         con.close()
         return
-    if cmd == "landing":
-        build_landing(cfg)
+    if cmd == "landing":                    # app shell only (index.html + stubs)
+        build_app_shell(cfg)
         return
     if cmd == "site":                       # full weekly build for GitHub Pages
         fetch(refresh=args.refresh)
@@ -1763,13 +1590,12 @@ def main():
         if args.open:
             webbrowser.open("file:///" + os.path.join(OUT_DIR, "index.html").replace("\\", "/"))
         return
-    if cmd == "browse":
+    if cmd == "browse":                     # rebuild the app (catalog + shell) only
         con = connect()
-        all_time = args.years is None   # --years N narrows to the last N years
-        path, n = build_browse(con, cfg, all_time=all_time)
+        build_app(con, cfg)
         con.close()
-        if path and args.open:
-            webbrowser.open("file:///" + path.replace("\\", "/"))
+        if args.open:
+            webbrowser.open("file:///" + os.path.join(OUT_DIR, "index.html").replace("\\", "/"))
         return
     if cmd in ("fetch", "run", "all"):
         fetch(refresh=args.refresh)

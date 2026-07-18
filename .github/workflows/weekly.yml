@@ -1,6 +1,6 @@
-name: Weekly Movie Finder
+name: Weekly build - Only the good stuff
 
-# Rebuilds the digest + browse dashboard every week and publishes them to GitHub Pages.
+# Rebuilds the app (movies + shows catalog) + digest every week and publishes to GitHub Pages.
 on:
   schedule:
     - cron: "30 2 * * 5"      # Fridays 02:30 UTC (~08:00 IST). Adjust as you like.
@@ -54,14 +54,23 @@ jobs:
             echo "supabase not configured - skipping"
           fi
 
-      - name: Build the site (digest + sentiment + browse + landing)
+      - name: Fetch previous deploy's catalog (keeps NEW badges honest)
+        run: |
+          curl -sf https://vaibhavjd.github.io/only-the-good-stuff/data.js -o prev-data.js \
+            && echo "prev catalog fetched ($(wc -c < prev-data.js) bytes)" \
+            || echo "no previous deploy - first run"
+
+      - name: Build the site (digest + sentiment + catalog + app)
         run: python movie_finder.py site
 
       - name: Sanity check the build
         run: |
           test -f out/index.html
-          test -f out/browse.html
-          test -f out/digest-latest.html
+          test -f out/data.js
+          grep -q 'MF_DATA' out/index.html || { echo "index.html is the placeholder page - templates/app.html missing?"; exit 1; }
+          titles=$(grep -o '"t":' out/data.js | wc -l)
+          echo "data.js titles: $titles"
+          test "$titles" -ge 1000
           echo "build looks good"
 
       - uses: actions/configure-pages@v5

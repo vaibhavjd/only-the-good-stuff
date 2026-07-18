@@ -1,6 +1,7 @@
 # local data + build artifacts (never commit these)
 data/
 out/
+prev-data.js
 moviefinder.db
 moviefinder.db-wal
 moviefinder.db-shm
