@@ -71,5 +71,3 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
 - Secrets set via piped `gh secret set` can carry a trailing newline → 401s; the code `.strip()`s
   all config strings and the workflow strips the secret.
 - `moviefinder.db` + IMDb `data/` are gitignored and rebuilt fresh each CI run.
-- Owner is PharmEasy marketing (email marketing@pharmeasy.in) but this is a PERSONAL side project —
-  keep it off the work `pharmeasyMarketing` GitHub account.
