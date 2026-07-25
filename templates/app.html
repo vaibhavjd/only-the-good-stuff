@@ -26,8 +26,15 @@ h2 .cnt{color:var(--faint);font-size:14px;font-family:"Segoe UI",system-ui,sans-
 .gcard{text-align:center}
 .gcard .eyebrow{font-size:12px}
 .gcard h1{font-size:36px;line-height:1.05;margin:10px 0 8px}
-.gsub{color:var(--muted);font-size:15px;margin:0 0 24px}
+.gsub{color:var(--muted);font-size:15px;margin:0 0 14px}
+.gper{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0 0 22px;padding:11px 14px;
+  background:var(--accent-soft);border-radius:11px;text-align:left}
+.gper b{color:var(--accent);font-weight:600}
 .gfoot{color:var(--faint);font-size:12px;margin:16px 0 0}
+/* credit */
+.cred{color:var(--faint);font-size:11.5px;letter-spacing:.02em;margin:14px 0 0}
+.cred b{color:var(--accent);font-weight:600}
+footer .cred{margin:0 0 6px;font-size:12px}
 .btn{display:block;width:100%;padding:12px 16px;border-radius:11px;font-size:15px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);margin-top:10px;transition:.12s}
 .btn:hover{border-color:var(--accent);color:var(--accent)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
@@ -59,7 +66,12 @@ h2 .cnt{color:var(--faint);font-size:14px;font-family:"Segoe UI",system-ui,sans-
 .select{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:13px;cursor:pointer}
 #fbtn{display:inline-flex;align-items:center;gap:7px;font-weight:600}
 .fbadge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;background:var(--accent);color:#fff;border-radius:999px;padding:0 5px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
-/* release-window strip (always visible on browse tabs) */
+/* kind selector — replaces the old Movies / Shows tabs */
+.seg{display:inline-flex;gap:3px;background:var(--chipbg);border:1px solid var(--line);border-radius:999px;padding:3px;margin:0 0 9px}
+.segb{border:0;background:none;color:var(--muted);padding:6px 17px;font-size:13px;cursor:pointer;border-radius:999px;transition:.12s}
+.segb:hover{color:var(--ink)}
+.segb.on{background:var(--accent);color:#fff;font-weight:600}
+/* release-window strip (always visible on the Browse tab) */
 .rw{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 9px}
 .rwl{color:var(--faint);font-size:11.5px;font-weight:600;letter-spacing:.03em;margin-right:1px}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
@@ -185,9 +197,11 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
     <div class="eyebrow">Your weekly watchlist</div>
     <h1>Only the good stuff!</h1>
     <p class="gsub">Genuinely good movies and shows &mdash; Indian and international &mdash; judged against each category&rsquo;s own bar, with where to stream them in India.</p>
+    <p class="gper">Then it learns you. Tell us your languages and streaming apps, <b>Like</b> what you enjoy and mark what&rsquo;s <b>Not for me</b> &mdash; every visit re-ranks around your taste, and pushes what you can actually stream tonight to the top.</p>
     <button type="button" id="gGoogle" class="btn primary google"><svg class="gg" viewBox="0 0 18 18" aria-hidden="true"><path fill="#fff" d="M17.6 9.2c0-.6-.05-1.18-.15-1.74H9v3.3h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.56 2.66-3.86 2.66-6.54z" opacity=".0"/><path fill="#4285F4" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.58-5.05-3.72H.94v2.34A9 9 0 0 0 9 18z" transform="translate(0)"/><path fill="#fff" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .94 5l3.01 2.34C4.66 5.16 6.65 3.58 9 3.58z" opacity="0"/></svg><span>Sign in with Google</span></button>
     <button type="button" id="gGuest" class="btn">Continue as guest</button>
     <p class="gfoot">Sign in to save your likes and picks to your account, on every device. Guest picks stay in this browser only.</p>
+    <p class="cred">Made in India by <b>Vaibhav Deshpande</b></p>
   </div>
 </div>
 
@@ -235,18 +249,22 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   <div class="pbar">
     <button type="button" id="gsin" class="mini gsin" hidden>Sign in with Google</button>
     <span id="whoami" class="who"></span>
+    <button type="button" id="gprefs" class="mini" hidden>Languages &amp; OTTs</button>
     <button type="button" id="gsout" class="mini" hidden>Sign out</button>
     <span id="tastesum" class="tastesum"></span>
   </div>
 
   <nav id="tabs" aria-label="Sections">
-    <button type="button" class="tab on" data-tab="week" aria-current="page">This Week</button>
-    <button type="button" class="tab" data-tab="movies">Movies</button>
-    <button type="button" class="tab" data-tab="shows">Shows</button>
+    <button type="button" class="tab on" data-tab="browse" aria-current="page">Browse</button>
     <button type="button" class="tab" data-tab="list">My List</button>
   </nav>
 
   <div class="controls">
+    <div id="kindsel" class="seg" role="group" aria-label="Show movies, shows or both">
+      <button type="button" class="segb on" data-kind="all" aria-pressed="true">All</button>
+      <button type="button" class="segb" data-kind="m" aria-pressed="false">Movies</button>
+      <button type="button" class="segb" data-kind="s" aria-pressed="false">Shows</button>
+    </div>
     <div id="toolbar" class="row">
       <input id="q" class="search" type="search" placeholder="Search titles...">
       <select id="sort" class="select" aria-label="Sort by">
@@ -269,15 +287,23 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   <div id="empty" class="empty" hidden>Nothing matches these filters. Try removing a few.</div>
 
   <div id="mylist" hidden>
+    <h2>Liked <span class="cnt" id="nlike"></span></h2>
+    <div id="likeGrid" class="grid"></div>
+    <div id="likeEmpty" class="empty" hidden>Nothing liked yet &mdash; tap Like on any title to train your picks.</div>
     <h2>Saved <span class="cnt" id="nsave"></span></h2>
     <div id="savedGrid" class="grid"></div>
     <div id="savedEmpty" class="empty" hidden>Nothing saved yet &mdash; tap Save on any title.</div>
     <h2>Seen <span class="cnt" id="nseen"></span></h2>
     <div id="seenGrid" class="grid"></div>
     <div id="seenEmpty" class="empty" hidden>Mark titles as Seen to build your history.</div>
+    <h2>Not for me <span class="cnt" id="ndis"></span></h2>
+    <div id="disGrid" class="grid"></div>
+    <div id="disEmpty" class="empty" hidden>Titles you mark &ldquo;Not for me&rdquo; collect here, and get ranked down in Browse.</div>
   </div>
 
-  <footer>Your likes, saves &amp; seen stay private &mdash; in this browser as a guest, or in your account when signed in.
+  <footer>
+  <p class="cred">Made in India by <b>Vaibhav Deshpande</b> &mdash; because scrolling four apps to find one good film isn&rsquo;t a plan.</p>
+  Your likes, saves &amp; seen stay private &mdash; in this browser as a guest, or in your account when signed in.
   Ratings &amp; votes: IMDb (used with permission) &amp; TMDB. Language, posters &amp; availability: TMDB / JustWatch.</footer>
 </div>
 </div>
@@ -298,17 +324,17 @@ const NEW_OK=TITLES.length>0&&(TITLES.filter(f=>f.nw).length/TITLES.length)<0.4;
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 function cnum(n){return (n||0).toLocaleString();}
 
-/* per-tab base sets + chip counts */
-const BASE={week:TITLES.slice(),movies:TITLES.filter(f=>f.k==="m"),shows:TITLES.filter(f=>f.k==="s")};
-function countsFor(tab){const lc={},pc={},gc={};BASE[tab].forEach(f=>{
+/* base sets + chip counts, keyed by kind ("all"/"m"/"s") — the old per-tab split */
+const BASE={all:TITLES.slice(),m:TITLES.filter(f=>f.k==="m"),s:TITLES.filter(f=>f.k==="s")};
+function countsFor(kind){const lc={},pc={},gc={};BASE[kind].forEach(f=>{
   if(f.l)lc[f.l]=(lc[f.l]||0)+1;(f.s||[]).forEach(p=>{pc[p]=(pc[p]||0)+1;});
   (f.g||[]).forEach(g=>{gc[g]=(gc[g]||0)+1;});});return{lc:lc,pc:pc,gc:gc};}
-const COUNTS={week:countsFor("week"),movies:countsFor("movies"),shows:countsFor("shows")};
+const COUNTS={all:countsFor("all"),m:countsFor("m"),s:countsFor("s")};
 const LANG_NAME={};TITLES.forEach(f=>{if(f.l&&!(f.l in LANG_NAME))LANG_NAME[f.l]=f.ln||f.l;});
 const LANG_CANON=["ml","ta","te","kn","bn","mr","hi","pa","gu","or","as","other_in","intl"];
 const LANG_ORDERED=LANG_CANON.filter(c=>c in LANG_NAME).concat(Object.keys(LANG_NAME).filter(c=>LANG_CANON.indexOf(c)<0));
 function langName(c){return LANG_NAME[c]||c;}
-const TOP_PLATS=Object.keys(COUNTS.week.pc).sort((a,b)=>COUNTS.week.pc[b]-COUNTS.week.pc[a]).slice(0,14);
+const TOP_PLATS=Object.keys(COUNTS.all.pc).sort((a,b)=>COUNTS.all.pc[b]-COUNTS.all.pc[a]).slice(0,14);
 
 /* ================= saved state (localStorage; v1-compatible keys) ================= */
 function lget(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}}
@@ -328,7 +354,8 @@ function saveU(){lset(dkey(),U);cloudPush();}
 function mergeData(local,cloud){const out={like:{},dislike:{},seen:{},save:{}};
   ["like","dislike","seen","save"].forEach(k=>Object.assign(out[k],(cloud&&cloud[k])||{},(local&&local[k])||{}));
   Object.keys(out.like).forEach(t=>{delete out.dislike[t];});
-  const pl=local&&local.prefs,pc=cloud&&cloud.prefs;if(pl||pc)out.prefs=pl||pc;
+  const pl=local&&local.prefs,pc=cloud&&cloud.prefs;   /* prefs are editable, so newest wins (not local) */
+  if(pl&&pc)out.prefs=((pc.at||0)>(pl.at||0))?pc:pl;else if(pl||pc)out.prefs=pl||pc;
   return out;}
 function renderAuthUI(){const on=!!CLOUD;
   $("#gsin").hidden=on||!sb;$("#gsout").hidden=!on;
@@ -342,53 +369,66 @@ async function cloudLogin(user){
   const cache=shape(lget(dkey(),null));
   const guest=cloud?null:shape(lget("mf_data_"+GUEST,null)); /* adopt guest data on first login */
   U=mergeData(mergeData(cache,guest),cloud);
+  /* adopted once: clear it, or the next new account on this device inherits the same guest taste */
+  if(guest)try{localStorage.removeItem("mf_data_"+GUEST);}catch(e){}
   saveU();enterApp();}
-function cloudLogout(){CLOUD=null;U=shape(lget(dkey(),null));
-  resetStates();renderAuthUI();computeTaste();updateSummary();
-  if(gateNeeded()){showGate();}else{applyPrefDefaults();renderView();maybeOnboard();}}
+function cloudLogout(){CLOUD=null;
+  try{localStorage.removeItem("mf_guest");}catch(e){}  /* sign-out always lands back on the welcome gate */
+  U=shape(lget(dkey(),null));
+  resetStates();renderAuthUI();computeTaste();updateSummary();showGate();}
 
 /* ================= taste model (genre / language / decade) ================= */
 let taste={g:{},l:{},d:{}};
+const PREF_LANG_W=1.5;   /* onboarding language prior; a like is 1.0, so real signal outgrows it */
+function prefLangs(){return (U.prefs&&U.prefs.langs)||[];}
+function prefPlats(){return (U.prefs&&U.prefs.plats)||[];}
 function norm(o){let m=0;for(const k in o)m=Math.max(m,Math.abs(o[k]));if(m>0)for(const k in o)o[k]/=m;}
 function computeTaste(){
   taste={g:{},l:{},d:{}};
   const bump=(f,w)=>{(f.g||[]).forEach(g=>{taste.g[g]=(taste.g[g]||0)+w;});
     taste.l[f.l]=(taste.l[f.l]||0)+w;const dc=Math.floor((f.y||0)/10)*10;taste.d[dc]=(taste.d[dc]||0)+w;};
+  /* your onboarding languages rank titles up, they don't filter others out */
+  prefLangs().forEach(l=>{taste.l[l]=(taste.l[l]||0)+PREF_LANG_W;});
   Object.keys(U.like).forEach(t=>{if(BYID[t])bump(BYID[t],1);});
   Object.keys(U.dislike).forEach(t=>{if(BYID[t])bump(BYID[t],-1.2);});
   Object.keys(U.save||{}).forEach(t=>{if(BYID[t]&&!U.like[t]&&!U.dislike[t])bump(BYID[t],0.5);}); /* a save = interest */
   norm(taste.g);norm(taste.l);norm(taste.d);
 }
 function hasTaste(){return Object.keys(U.like).length>0||Object.keys(U.save||{}).length>0;}
+/* enough to rank by (match % still needs real likes — onboarding picks alone shouldn't claim a score) */
+function hasSignal(){return hasTaste()||prefLangs().length>0||prefPlats().length>0;}
 function raw(f){let s=0;const g=f.g||[];
   if(g.length){let t=0;g.forEach(x=>{t+=(taste.g[x]||0);});s+=t/g.length;}
   s+=1.3*(taste.l[f.l]||0);const dc=Math.floor((f.y||0)/10)*10;s+=0.4*(taste.d[dc]||0);return s;}
 function matchPct(f){if(!hasTaste())return null;return Math.round(100/(1+Math.exp(-1.5*raw(f))));}
 function matchWhy(f){let best=null,bv=0;(f.g||[]).forEach(g=>{if((taste.g[g]||0)>bv){bv=taste.g[g];best=g;}});
   return best?("matches your taste for "+best):"based on your likes";}
-function platBoost(f){const P=(U.prefs&&U.prefs.plats)||[];if(!P.length)return 0;
+function platBoost(f){const P=prefPlats();if(!P.length)return 0;
   return (f.s||[]).some(p=>P.indexOf(p)>=0)?1:0;}
 function newB(f){return (f.nw&&NEW_OK)?1:0;}        /* new this week */
 function seenP(f){return U.seen[f.t]?1:0;}          /* already watched -> sink in recommendations */
 
-/* ================= filter state (per tab) ================= */
-function freshState(tab){return{q:"",sort:"rating",minR:THRESH,minTR:0,
-  ypreset:tab==="week"?"l2":"all",ymin:null,ymax:null,
+/* ================= filter state (single Browse view) ================= */
+const DEF_YEAR="l2";   /* Browse opens on the recent window; the release-window strip shows it */
+function freshState(){return{q:"",sort:"rating",minR:THRESH,minTR:0,kind:"all",
+  ypreset:DEF_YEAR,ymin:null,ymax:null,
   streamOnly:false,indianOnly:false,savedOnly:false,hideSeen:false,reviewedOnly:false,
   langs:new Set(),plats:new Set(),genres:new Set()};}
-const ST={week:freshState("week"),movies:freshState("movies"),shows:freshState("shows")};
-let TAB="week";
+const ST={browse:freshState()};
+let TAB="browse";
 const EXP=new Set();
 let fOpen=false,gExpand=false;
-function resetStates(){ST.week=freshState("week");ST.movies=freshState("movies");ST.shows=freshState("shows");EXP.clear();}
-function applyPrefDefaults(){ST.week.langs=new Set((U.prefs&&U.prefs.langs)||[]);
-  ST.week.sort=hasTaste()?"foryou":"rating";}   /* open This Week personalised once there are signals */
+function resetStates(){ST.browse=freshState();EXP.clear();}
+/* languages rank via computeTaste, so Browse opens personalised but unfiltered */
+function applyPrefDefaults(){ST.browse.sort=hasSignal()?"foryou":"rating";}
+function curSt(){return ST.browse;}
+function curBase(){return BASE[ST.browse.kind];}
 
-const PRESETS=[["ty","This year"],["l2","Last 2 years"],["l10","Last 10 years"],
+const PRESETS=[["ty","This year"],["l2","Last 2 years"],["l5","Last 5 years"],["l10","Last 10 years"],
   ["d2010","2010s"],["d2000","2000s"],["d90","90s & older"],["all","All time"],["custom","Custom"]];
 const PRESET_LABEL={};PRESETS.forEach(p=>{PRESET_LABEL[p[0]]=p[1];});
 function presetRange(p,cy){switch(p){
-  case "ty":return[cy,cy];case "l2":return[cy-1,cy];case "l10":return[cy-9,cy];
+  case "ty":return[cy,cy];case "l2":return[cy-1,cy];case "l5":return[cy-4,cy];case "l10":return[cy-9,cy];
   case "d2010":return[2010,2019];case "d2000":return[2000,2009];case "d90":return[0,1999];
   case "all":return[0,9999];default:return null;}}
 function stRange(st){if(st.ypreset==="custom")return[st.ymin||0,st.ymax||9999];
@@ -423,23 +463,22 @@ const SORT={
   votes:(a,b)=>b.v-a.v||b.r-a.r,
   gems:(a,b)=>b.p-a.p||b.r-a.r
 };
-function cmpFor(tab,st){
-  if(tab==="week"){
-    /* This Week ranking: your OTTs boost, new-this-week boost, already-seen sinks */
-    const wq=f=>0.4*platBoost(f)+0.3*newB(f)-3*seenP(f);
-    if(st.sort==="rating")return (a,b)=>((b.r+wq(b))-(a.r+wq(a)))||b.v-a.v;
-    if(st.sort==="foryou")return (a,b)=>((raw(b)+0.6*platBoost(b)+0.3*newB(b)-3*seenP(b))-(raw(a)+0.6*platBoost(a)+0.3*newB(a)-3*seenP(a)))||b.r-a.r;
-  }
+/* Browse ranking: your OTTs boost, new-this-week boost, already-seen sinks */
+function cmpFor(st){
+  const pq=f=>0.6*platBoost(f)-3*seenP(f);   /* on your OTTs lifts, already-watched sinks */
+  if(st.sort==="rating"){const wq=f=>0.4*platBoost(f)+0.3*newB(f)-3*seenP(f);
+    return (a,b)=>((b.r+wq(b))-(a.r+wq(a)))||b.v-a.v;}
+  if(st.sort==="foryou")return (a,b)=>((raw(b)+pq(b)+0.3*newB(b))-(raw(a)+pq(a)+0.3*newB(a)))||b.r-a.r;
   return SORT[st.sort]||SORT.rating;
 }
-function compute(tab){const st=ST[tab];
-  const out=BASE[tab].filter(f=>passes(f,st,U));out.sort(cmpFor(tab,st));return out;}
+function compute(){const st=curSt();
+  const out=curBase().filter(f=>passes(f,st,U));out.sort(cmpFor(st));return out;}
 
-function activeFilters(st,tab){const a=[];
+function activeFilters(st){const a=[];
   if(st.minR>THRESH+1e-9)a.push({k:"minR",label:"IMDb ≥ "+(+st.minR).toFixed(1)});
   if(st.minTR>0)a.push({k:"minTR",label:"TMDB ≥ "+(+st.minTR).toFixed(1)});
-  const defYear=tab==="week"?"l2":"all";
-  if(st.ypreset!==defYear)a.push({k:"year",label:yearLabel(st)});
+  /* the release-window strip already shows the window, so only chip it when off-default */
+  if(st.ypreset!==DEF_YEAR)a.push({k:"year",label:yearLabel(st)});
   if(st.streamOnly)a.push({k:"streamOnly",label:"Streaming now"});
   if(st.indianOnly)a.push({k:"indianOnly",label:"Indian only"});
   if(st.savedOnly)a.push({k:"savedOnly",label:"Saved"});
@@ -449,20 +488,20 @@ function activeFilters(st,tab){const a=[];
   st.genres.forEach(g=>a.push({k:"genre",v:g,label:g}));
   st.plats.forEach(p=>a.push({k:"plat",v:p,label:p}));
   return a;}
-function removeFilter(k,v){const st=ST[TAB];
+function removeFilter(k,v){const st=curSt();
   if(k==="minR")st.minR=THRESH;
   else if(k==="minTR")st.minTR=0;
-  else if(k==="year"){st.ypreset=TAB==="week"?"l2":"all";st.ymin=st.ymax=null;}
+  else if(k==="year"){st.ypreset=DEF_YEAR;st.ymin=st.ymax=null;}
   else if(k==="lang")st.langs.delete(v);
   else if(k==="genre")st.genres.delete(v);
   else if(k==="plat")st.plats.delete(v);
   else st[k]=false;
   renderPanel();renderRW();apply();}
-function clearAll(){const st=ST[TAB],s=freshState(TAB);
+function clearAll(){const st=curSt(),s=freshState();
   st.minR=s.minR;st.minTR=0;st.ypreset=s.ypreset;st.ymin=st.ymax=null;
   st.streamOnly=st.indianOnly=st.savedOnly=st.hideSeen=st.reviewedOnly=false;
   st.langs.clear();st.plats.clear();st.genres.clear();
-  renderPanel();renderRW();apply();}
+  renderPanel();renderRW();apply();}   /* kind is deliberately NOT reset — it's a view, not a filter */
 
 /* ================= rendering ================= */
 function years(f){if(!f.y)return "";
@@ -521,8 +560,8 @@ function card(f,ctx){
 function chipBtn(k,v,label,count,on){
   return `<button type="button" class="chip${on?" on":""}" data-k="${k}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}${count!=null?`<span class="n">${count}</span>`:""}</button>`;}
 function yearChips(st){return PRESETS.map(p=>chipBtn("year",p[0],p[1],null,st.ypreset===p[0])).join("");}
-function fpanelHtml(tab,st){
-  const C=COUNTS[tab];
+function fpanelHtml(kind,st){
+  const C=COUNTS[kind];   /* chip counts reflect the All/Movies/Shows selection */
   const langs=LANG_ORDERED.filter(c=>C.lc[c]).map(c=>chipBtn("lang",c,langName(c),C.lc[c],st.langs.has(c))).join("");
   const plats=Object.keys(C.pc).sort((a,b)=>C.pc[b]-C.pc[a]).map(p=>chipBtn("plat",p,p,C.pc[p],st.plats.has(p)));
   const gAll=Object.keys(C.gc).sort((a,b)=>C.gc[b]-C.gc[a]);
@@ -549,21 +588,26 @@ function fpanelHtml(tab,st){
     <label class="chk"><input type="checkbox" id="reviewedOnly"${st.reviewedOnly?" checked":""}> <span>Has a viewer verdict</span></label>
   </div>`;}
 
-function renderPanel(){if(TAB==="list")return;$("#dbody").innerHTML=fpanelHtml(TAB,ST[TAB]);}
+function renderPanel(){if(TAB==="list")return;const st=curSt();$("#dbody").innerHTML=fpanelHtml(st.kind,st);}
 function renderRW(){const w=$("#rw");
   if(TAB==="list"){w.innerHTML="";return;}
-  w.innerHTML=`<span class="rwl">RELEASE WINDOW</span>`+yearChips(ST[TAB]);}
-function syncYearChips(){const st=ST[TAB];
+  w.innerHTML=`<span class="rwl">RELEASE WINDOW</span>`+yearChips(curSt());}
+function syncYearChips(){const st=curSt();
   [$("#fYear"),$("#rw")].forEach(c=>{if(!c||!c.querySelectorAll)return;
     c.querySelectorAll(".chip").forEach(ch=>{const on=ch.dataset.v===st.ypreset;
       ch.classList.toggle("on",on);ch.setAttribute("aria-pressed",String(on));});});}
-function syncToolbar(){const st=ST[TAB];$("#q").value=st.q;$("#sort").value=st.sort;}
+function syncToolbar(){const st=curSt();$("#q").value=st.q;$("#sort").value=st.sort;}
+function syncKind(){const k=curSt().kind;
+  $("#kindsel").querySelectorAll(".segb").forEach(b=>{const on=b.dataset.kind===k;
+    b.classList.toggle("on",on);b.setAttribute("aria-pressed",String(on));});}
+function setKind(k){const st=curSt();if(!k||k===st.kind)return;
+  st.kind=k;syncKind();renderPanel();apply();}   /* chip counts follow the kind, so repaint the drawer */
 function syncTabs(){const c=$("#tabs");if(!c||!c.querySelectorAll)return;
   c.querySelectorAll(".tab").forEach(b=>{const on=b.dataset.tab===TAB;
     b.classList.toggle("on",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});}
 
 function renderAchips(st){
-  const items=activeFilters(st,TAB);
+  const items=activeFilters(st);
   const fb=$("#fcount");fb.hidden=items.length===0;fb.textContent=items.length;
   $("#achips").innerHTML=items.length?items.map(i=>
     `<button type="button" class="fchip" data-fk="${i.k}"${i.v!=null?` data-fv="${esc(i.v)}"`:""} aria-label="Remove filter: ${esc(i.label)}">${esc(i.label)}<span class="x" aria-hidden="true">&times;</span></button>`
@@ -571,16 +615,20 @@ function renderAchips(st){
 
 const CAP=400;
 function updateSubline(n){const s=$("#subline");if(!s)return;
-  if(TAB==="week"&&hasTaste()){
+  if(hasTaste()){
     const nl=Object.keys(U.like).length,nsv=Object.keys(U.save||{}).length;
     const from=nl?(nl+" like"+(nl===1?"":"s")+(nsv?(" & "+nsv+" saved"):"")):(nsv+" saved");
     s.innerHTML="Personalised for you — from your "+from+", newest good picks first (titles you’ve seen sink down)";
+  }else if(hasSignal()){   /* onboarding picks only — say what's ranking, don't claim taste */
+    const bits=[];if(prefLangs().length)bits.push("your languages");
+    if(prefPlats().length)bits.push("what you can stream");
+    s.innerHTML="Sorted around "+bits.join(" and ")+" — like a few titles to sharpen this";
   }else{
-    s.innerHTML="<b>"+n+"</b> of "+BASE[TAB].length+" titles · "+THRESH+"+ IMDb, judged against each category’s own vote baseline";
+    s.innerHTML="<b>"+n+"</b> of "+curBase().length+" titles · "+THRESH+"+ IMDb, judged against each category’s own vote baseline";
   }}
 function apply(){
   if(TAB==="list"){renderMyList();return;}
-  const st=ST[TAB],out=compute(TAB);
+  const st=curSt(),out=compute();
   updateSubline(out.length);
   renderAchips(st);
   $("#dApply").textContent="Show "+out.length+" result"+(out.length===1?"":"s");
@@ -592,20 +640,23 @@ function apply(){
   else note.hidden=true;}
 
 function renderMyList(){
-  const ts=o=>Object.keys(o).map(t=>BYID[t]).filter(Boolean).sort((a,b)=>(+o[b.t]||0)-(+o[a.t]||0));
-  const sv=ts(U.save),sn=ts(U.seen);
-  $("#nsave").textContent=sv.length;$("#nseen").textContent=sn.length;
-  $("#savedGrid").innerHTML=sv.map(f=>card(f,{rm:"save"})).join("");
-  $("#seenGrid").innerHTML=sn.map(f=>card(f,{rm:"seen"})).join("");
-  $("#savedEmpty").hidden=sv.length>0;$("#seenEmpty").hidden=sn.length>0;}
+  const ts=o=>Object.keys(o||{}).map(t=>BYID[t]).filter(Boolean).sort((a,b)=>(+o[b.t]||0)-(+o[a.t]||0));
+  /* newest action first, each section removable via its own key */
+  [["like","nlike","likeGrid","likeEmpty"],["save","nsave","savedGrid","savedEmpty"],
+   ["seen","nseen","seenGrid","seenEmpty"],["dislike","ndis","disGrid","disEmpty"]]
+  .forEach(([k,cnt,grid,empty])=>{const items=ts(U[k]);
+    $("#"+cnt).textContent=items.length;
+    $("#"+grid).innerHTML=items.map(f=>card(f,{rm:k})).join("");
+    $("#"+empty).hidden=items.length>0;});}
 
 function renderView(){
   syncTabs();
   const isList=TAB==="list";
   $("#toolbar").hidden=isList;$("#achips").hidden=isList;$("#rw").hidden=isList;
+  $("#kindsel").hidden=isList;
   $("#grid").hidden=isList;$("#mylist").hidden=!isList;$("#subline").hidden=isList;
   if(isList){$("#note").hidden=true;$("#empty").hidden=true;renderMyList();return;}
-  syncToolbar();renderRW();renderPanel();apply();}
+  syncToolbar();syncKind();renderRW();renderPanel();apply();}
 
 function setTab(t){if(!t||t===TAB)return;TAB=t;if(fOpen)closeDrawer();renderView();}
 function updateSummary(){
@@ -630,20 +681,25 @@ function enterApp(){$("#gate").hidden=true;$("#app").hidden=false;
   applyPrefDefaults();renderView();maybeOnboard();}
 
 let obStep=1,obSel={langs:new Set(),plats:new Set()};
-function maybeOnboard(){if(U.prefs){$("#ob").hidden=true;return;}renderOnboard();$("#ob").hidden=false;}
-function renderOnboard(){obStep=1;obSel={langs:new Set(),plats:new Set()};
-  $("#obLangs").innerHTML=LANG_ORDERED.map(c=>
-    `<button type="button" class="chip" data-ob="lang" data-v="${esc(c)}" aria-pressed="false">${esc(langName(c))}<span class="n">${COUNTS.week.lc[c]||0}</span></button>`).join("")
+function maybeOnboard(){$("#gprefs").hidden=false;   /* reachable again once you're in the app */
+  if(U.prefs){$("#ob").hidden=true;return;}renderOnboard();$("#ob").hidden=false;}
+function renderOnboard(){obStep=1;
+  obSel={langs:new Set(prefLangs()),plats:new Set(prefPlats())};   /* pre-tick current picks when re-editing */
+  const chip=(kind,v,label,n)=>{const on=obSel[kind==="lang"?"langs":"plats"].has(v);
+    return `<button type="button" class="chip${on?" on":""}" data-ob="${kind}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}${n!==undefined?`<span class="n">${n}</span>`:""}</button>`;};
+  $("#obLangs").innerHTML=LANG_ORDERED.map(c=>chip("lang",c,langName(c),COUNTS.all.lc[c]||0)).join("")
     ||'<span class="fnote">No catalog loaded yet.</span>';
-  $("#obPlats").innerHTML=TOP_PLATS.map(p=>
-    `<button type="button" class="chip" data-ob="plat" data-v="${esc(p)}" aria-pressed="false">${esc(p)}</button>`).join("")
+  $("#obPlats").innerHTML=TOP_PLATS.map(p=>chip("plat",p,p)).join("")
     ||'<span class="fnote">No platform data yet.</span>';
+  $("#obSkip").textContent=U.prefs?"Cancel":"Skip";
   syncObStep();}
 function syncObStep(){$("#obS1").hidden=obStep!==1;$("#obS2").hidden=obStep!==2;
   $("#obBack").hidden=obStep===1;$("#obNext").hidden=obStep!==1;$("#obDone").hidden=obStep!==2;}
 function finishOnboard(save){
-  U.prefs={langs:save?Array.from(obSel.langs):[],plats:save?Array.from(obSel.plats):[]};
-  saveU();$("#ob").hidden=true;applyPrefDefaults();renderView();}
+  if(save)U.prefs={langs:Array.from(obSel.langs),plats:Array.from(obSel.plats),at:Date.now()};
+  else if(!U.prefs)U.prefs={langs:[],plats:[],at:Date.now()};  /* cancel must not wipe existing picks */
+  saveU();computeTaste();updateSummary();   /* prefs feed the taste prior now */
+  $("#ob").hidden=true;applyPrefDefaults();renderView();}
 
 /* ================= events ================= */
 $("#gGoogle").addEventListener("click",()=>{if(!sb)return;
@@ -676,7 +732,7 @@ function yearChip(st,v){st.ypreset=v;
     st.ymin=parseInt(a&&a.value,10)||null;st.ymax=parseInt(b&&b.value,10)||null;
     if(!fOpen)openDrawer();}
   syncYearChips();apply();}
-function panelChip(t){const st=ST[TAB],k=t.dataset.k,v=t.dataset.v;
+function panelChip(t){const st=curSt(),k=t.dataset.k,v=t.dataset.v;
   if(k==="year"){yearChip(st,v);return;}
   let set=k==="lang"?st.langs:(k==="genre"?st.genres:st.plats);
   if(set.has(v))set.delete(v);else set.add(v);
@@ -687,14 +743,16 @@ function panelChip(t){const st=ST[TAB],k=t.dataset.k,v=t.dataset.v;
 $("#app").addEventListener("click",e=>{
   const t=e.target.closest?e.target.closest("button"):null;if(!t)return;
   if(t.classList.contains("tab")){setTab(t.dataset.tab);return;}
+  if(t.dataset.kind){setKind(t.dataset.kind);return;}
   if(t.dataset.act){toggleAct(t.dataset.act,t.dataset.t);return;}
   if(t.dataset.rm){delete U[t.dataset.rm][t.dataset.t];saveU();computeTaste();updateSummary();renderMyList();return;}
   if(t.dataset.more!==undefined){toggleMore(t);return;}
   if(t.id==="fbtn"){fOpen?closeDrawer():openDrawer();return;}
   if(t.id==="clearAll"){clearAll();return;}
   if(t.dataset.fk){removeFilter(t.dataset.fk,t.dataset.fv);return;}
-  if(t.dataset.k==="year"){yearChip(ST[TAB],t.dataset.v);return;}
+  if(t.dataset.k==="year"){yearChip(curSt(),t.dataset.v);return;}
   if(t.dataset.k){panelChip(t);return;}
+  if(t.id==="gprefs"){renderOnboard();$("#ob").hidden=false;return;}
   if(t.id==="gsin"){if(sb)sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});return;}
   if(t.id==="gsout"){(async()=>{try{await sb.auth.signOut();}catch(e){}cloudLogout();})();return;}});
 
@@ -710,7 +768,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&fOpen)closeDrawer()
 
 /* inputs (search, sliders, custom year) — bubbles from app + drawer */
 document.addEventListener("input",e=>{
-  const el=e.target,st=ST[TAB];if(!st)return;
+  const el=e.target,st=TAB==="list"?null:curSt();if(!st)return;
   if(el.id==="q"){st.q=el.value;apply();}
   else if(el.id==="minR"){st.minR=+el.value;const v=$("#minRv");if(v)v.textContent=(+el.value).toFixed(1);renderAchips(st);apply();}
   else if(el.id==="minTR"){st.minTR=+el.value;const v=$("#minTRv");if(v)v.textContent=st.minTR?st.minTR.toFixed(1):"any";renderAchips(st);apply();}
@@ -719,7 +777,7 @@ document.addEventListener("input",e=>{
     st.ymin=parseInt(a&&a.value,10)||null;st.ymax=parseInt(b&&b.value,10)||null;
     syncYearChips();apply();}});
 document.addEventListener("change",e=>{
-  const el=e.target,st=ST[TAB];if(!st)return;
+  const el=e.target,st=TAB==="list"?null:curSt();if(!st)return;
   if(el.id==="sort"){st.sort=el.value;apply();}
   else if(["streamOnly","indianOnly","savedOnly","hideSeen","reviewedOnly"].indexOf(el.id)>=0){
     st[el.id]=el.checked;renderAchips(st);apply();}});
@@ -734,8 +792,9 @@ if(sb){
 }
 
 /* test hooks (harmless in production) */
-if(typeof window!=="undefined")window.MF={presetRange,mergeData,passes,compute,SORT,ST,BASE,TITLES,
-  setTab,apply,freshState,finishOnboard,enterApp,activeFilters,years,gateNeeded,openDrawer,closeDrawer,U:()=>U,TAB:()=>TAB};
+if(typeof window!=="undefined")window.MF={presetRange,mergeData,passes,compute,SORT,ST,BASE,COUNTS,TITLES,
+  setTab,setKind,apply,freshState,finishOnboard,enterApp,activeFilters,years,gateNeeded,openDrawer,closeDrawer,
+  renderMyList,computeTaste,U:()=>U,TAB:()=>TAB};
 
 /* ================= boot ================= */
 renderAuthUI();

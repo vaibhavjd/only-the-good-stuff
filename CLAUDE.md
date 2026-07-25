@@ -13,9 +13,18 @@ maps each to Indian OTT availability, adds review sentiment, and personalises pe
   computes per-(language×kind) vote baselines + two-gate quality filter, enriches via TMDB
   (language, storyline, countries, posters, IN availability, TMDB rating), runs review
   sentiment, and emits the site.
-- `templates/app.html` — the single-page app (welcome gate → onboarding → 4 tabs:
-  This Week / Movies / Shows / My List). Inline CSS + one inline `<script>`. Placeholders
+- `templates/app.html` — the single-page app (welcome gate → onboarding → **2 tabs: Browse /
+  My List**). Inline CSS + one inline `<script>`. Placeholders
   `__BUILT__ __THRESH__ __SUPA_URL__ __SUPA_KEY__` are str.replace()'d at build time.
+  - Restructured 2026-07-25 from 4 tabs (This Week / Movies / Shows / My List). Movies+Shows
+    became an **All / Movies / Shows segmented control** (`#kindsel`) inside Browse, and This Week's
+    ranking + its `l2` default release window became Browse's (`DEF_YEAR`). So `BASE`/`COUNTS` are
+    now keyed by **kind** (`all`/`m`/`s`), not by tab, and `ST` holds one `browse` state carrying
+    `st.kind`. Helpers `curSt()`/`curBase()` are the single read path — there is no `ST[TAB]` any
+    more (`TAB` is only `"browse"`/`"list"`). `clearAll()` deliberately does NOT reset `kind`:
+    it's a view, not a filter.
+  - My List has 4 sections (Liked / Saved / Seen / Not for me), driven by one table in
+    `renderMyList` keyed off `U.{like,save,seen,dislike}`.
 - `out/` (gitignored) — generated: `index.html` (app shell), `data.js`
   (`window.MF_DATA={built,threshold,titles:[…]}`), redirect stubs `browse.html` /
   `digest-latest.html` → index.html, `.nojekyll`.
@@ -59,10 +68,25 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
 - Per-user taste is computed IN THE BROWSER from the user's own `{like,dislike,save}` (a save is
   a lighter +0.5 signal) into genre×language×decade weights (`computeTaste`/`raw`). `seen` is used
   to down-rank (already-watched titles sink), not to train taste.
-- **This Week is personalised by default once the user has any like/save** (`applyPrefDefaults` sets
-  sort=`foryou`): ranking = taste match + boost for titles on the user's OTT platforms + new-this-week
-  boost − heavy penalty for already-seen. New users (no signals) fall back to quality (`rating`) ranking,
-  so there's no cold-start regression. The subline says "Personalised for you …" when active.
+- **The 2 onboarding answers (`prefs.langs` / `prefs.plats`) feed ranking, never filtering** (changed
+  2026-07-25 — languages used to hard-filter the weekly view, so a non-picked language was invisible):
+  - languages seed `taste.l` with a `PREF_LANG_W` (1.5) prior inside `computeTaste`. A like is 1.0,
+    so real signal outgrows the prior on its own — no explicit decay term. Verified: 10 likes in one
+    language fully displace a prior in another, and the un-picked languages stay in the list.
+  - platforms stay a separate `platBoost` (availability ≠ taste), applied to `foryou` on **all** tabs
+    (Movies/Shows used to be bare `raw()` with zero platform awareness).
+- **Browse opens personalised once there is ANY signal** — `applyPrefDefaults` sets sort=`foryou`
+  on `hasSignal()` (a like/save **or** onboarding picks), so a brand-new user who onboarded gets
+  ranked picks immediately. `hasTaste()` (likes/saves only) still gates the match-% badge, so
+  onboarding picks alone never claim a numeric "match". The subline has 3 states: real taste →
+  "Personalised for you …", prefs only → "Sorted around your languages …", nothing → generic count.
+- The welcome gate sells this: a `.gper` panel under the pitch tells the user the app learns
+  from Like / Not-for-me and pushes streamable titles up. Keep that copy honest if the ranking
+  changes — it names the actual buttons.
+- **Prefs are editable** via the "Languages & OTTs" button in the `.pbar` (`#gprefs` reopens the
+  onboarding wizard with current picks pre-ticked; its Skip button becomes "Cancel" and is
+  non-destructive). Before this, `maybeOnboard` only fired when `U.prefs` was undefined, so skipping
+  onboarding once locked you to empty prefs permanently with no way back.
 - The weekly BUILD is GLOBAL (one identical data.js for everyone); there is NO server-side per-user
   tailoring or personalised email/push. That would be the next step if wanted (read each Supabase
   `taste` row in the workflow → per-user digest via email/Telegram) — not built.
@@ -75,6 +99,18 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
   per-user `{like,dislike,seen,save,prefs}` object syncs; guest localStorage is the offline
   fallback/cache and is adopted on first login. Anon/publishable key is public (in the page) —
   RLS protects data.
+- **Accounts are isolated per `user_id`** (own localStorage key `mf_data_cloud_<uid>` + own RLS'd row),
+  but the shared guest bucket used to leak between them: `cloudLogin` adopts `mf_data_<GUEST>` when the
+  account has no cloud row yet, and it was never cleared — so on one device, account A's pre-signin
+  guest likes were re-adopted by the next new account B. Fixed 2026-07-25: the guest key is removed
+  once adopted. An account that already HAS a cloud row still (correctly) ignores guest data.
+- **Sign-out returns to the welcome gate.** `cloudLogout` clears the `mf_guest` flag before calling
+  `showGate()` — without that, anyone who had ever tapped "Continue as guest" was dropped straight
+  back into the app as a guest instead of the login screen.
+- `mergeData` is local-wins for `{like,dislike,seen,save}` but **newest-wins for `prefs`** via a
+  `prefs.at` stamp — local-wins there meant a stale cached copy on device 1 would overwrite prefs
+  edited on device 2 and push the stale version back up. Legacy prefs with no `.at` fall back to
+  local-wins.
 - Google OAuth needs an https (or http://localhost) origin — never `file://`. For LOCAL login
   testing: keys are in local config.json; serve `out/` on **http://localhost:8080** (port 8000 is
   taken on this machine) via `python -m http.server 8080 --bind 127.0.0.1`, and add

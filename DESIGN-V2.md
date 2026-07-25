@@ -64,18 +64,23 @@ Data loads via `<script src="data.js"></script>` placed before the main app scri
    (a) pick languages you watch (chips, multi); (b) pick OTT platforms you have
    (chips from the catalog's top providers). Skippable. Stored per profile (cloud
    users: inside their taste row data under `prefs`; guests: localStorage).
-3. **Home** with 4 tabs:
-   - **This Week** (default): "Picks for you" — year-range control (preset chips:
-     This year · Last 2 years · Last 10 years · 2010s · 2000s · 90s & older · All time ·
-     Custom min–max), sort dropdown, and NEW-this-week badges. Defaults: user's languages,
-     their platforms boosted, year preset = Last 2 years, sort = Best rated.
-   - **Movies** and **Shows**: full catalog browse of that kind with the filter system.
-   - **My List**: saved titles + seen history, with remove controls.
+3. **Home** with 2 tabs (was 4 — This Week / Movies / Shows / My List — until 2026-07-25):
+   - **Browse** (default): the single catalog view. An **All / Movies / Shows** segmented
+     control (`#kindsel`) replaces the old per-kind tabs and swaps the corpus in place;
+     filters and sort persist across the switch, and the drawer's chip counts follow the
+     selection. Carries what This Week used to own: year-range control (preset chips:
+     This year · Last 2 years · **Last 5 years** · Last 10 years · 2010s · 2000s ·
+     90s & older · All time · Custom min–max), sort dropdown, NEW-this-week badges, and the
+     ranking (OTT boost + new-this-week boost − already-seen penalty). Defaults: year preset
+     = Last 2 years (`DEF_YEAR`), sort = For You once the user has any signal, else Best rated.
+     The user's languages **rank** rather than filter — see CLAUDE.md § Personalisation.
+   - **My List**: four sections — **Liked · Saved · Seen · Not for me** — each with a count
+     and per-card remove control.
 4. Profile bar: guest profiles (dropdown + New/Rename/Delete) or "Syncing as <name>"
    + Sign out — port the existing v1 logic (localStorage guest, Supabase cloud sync,
    merge on login, like-beats-dislike).
 
-## Filter & sort system (applies to This Week / Movies / Shows)
+## Filter & sort system (applies to the Browse tab, across all three kind selections)
 - Always-visible bar: search box, sort dropdown, "Filters" button with active-count badge.
 - Sort options (exact list): **Best rated · Newest first · Oldest first · For You ·
   Viewer sentiment · Most voted · Hidden gems** (= category significance).
@@ -122,7 +127,8 @@ category significance line, IMDb link. Smooth expand, no layout jank.
 
 ## Visual identity (keep, refine)
 Crimson accent #a3172e (dark: #e56a7c), Georgia display + Segoe UI body, light+dark
-via prefers-color-scheme, card-based, IMDb/TMDB/JustWatch attribution in footer.
+via prefers-color-scheme, card-based, IMDb/TMDB/JustWatch attribution in footer,
+"Made in India by Vaibhav Deshpande" credit on the gate and in the footer.
 Mobile-first: BOTTOM tab bar on <760px, top tabs on desktop.
 
 ## Non-negotiables
