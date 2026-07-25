@@ -90,7 +90,7 @@ KNOWN_INTL_LANGS = {"en", "ko", "ja", "es", "fr", "it", "de", "zh", "cn",
 WESTERN_REGIONS = {"US", "GB", "CA", "AU", "NZ", "IE"}
 
 DEFAULTS = {
-    "rating_threshold": 6.5,   # Gate 2: weighted rating must clear this
+    "rating_threshold": 5.5,   # Gate 2: weighted rating must clear this (also the app's min-rating floor)
     "recent_years": 2,         # digest covers releases from the last N years (incl. current)
     "vote_floor_min": 500,     # clamp for Gate 1 vote floor (P35 of stratum)
     "vote_floor_max": 10000,

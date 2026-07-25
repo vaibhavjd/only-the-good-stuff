@@ -27,7 +27,7 @@ between them is the MF_DATA schema and the template placeholders — do not devi
 ```js
 window.MF_DATA = {
   built: "YYYY-MM-DD",        // build date
-  threshold: 6.5,
+  threshold: 5.5,
   titles: [{
     t: "tt1234567",           // imdb id (stable key for likes/saves)
     k: "m" | "s",             // movie | series

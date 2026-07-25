@@ -1,7 +1,7 @@
 # Only the good stuff! — project context
 
 A weekly, quality-gated movie **and** TV-show discovery web app for India. Surfaces
-genuinely good titles (6.5+ IMDb, judged against per-language×kind vote baselines),
+quality titles (5.5+ IMDb — lowered from 6.5 on 2026-07-18 — judged against per-language×kind vote baselines),
 maps each to Indian OTT availability, adds review sentiment, and personalises per user.
 
 - **Live site:** https://vaibhavjd.github.io/only-the-good-stuff/
@@ -54,6 +54,21 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
   Never print the token. Fine-grained tokens FAIL (repo-scope); only classic works.
 - Watch a run: `gh run watch <id> -R vaibhavjd/only-the-good-stuff --exit-status` in PowerShell
   (gh is NOT on Git Bash's PATH, so poll from PowerShell, not Bash).
+
+## Personalisation (all client-side, in templates/app.html)
+- Per-user taste is computed IN THE BROWSER from the user's own `{like,dislike,save}` (a save is
+  a lighter +0.5 signal) into genre×language×decade weights (`computeTaste`/`raw`). `seen` is used
+  to down-rank (already-watched titles sink), not to train taste.
+- **This Week is personalised by default once the user has any like/save** (`applyPrefDefaults` sets
+  sort=`foryou`): ranking = taste match + boost for titles on the user's OTT platforms + new-this-week
+  boost − heavy penalty for already-seen. New users (no signals) fall back to quality (`rating`) ranking,
+  so there's no cold-start regression. The subline says "Personalised for you …" when active.
+- The weekly BUILD is GLOBAL (one identical data.js for everyone); there is NO server-side per-user
+  tailoring or personalised email/push. That would be the next step if wanted (read each Supabase
+  `taste` row in the workflow → per-user digest via email/Telegram) — not built.
+- `rebuild after a frontend-only change`: use `python movie_finder.py landing` (regenerates index.html
+  from templates/app.html in ~1s; does NOT touch data.js). `browse` re-enriches the whole catalog and
+  is slow when the TMDB day-cache is stale — only use it when the catalog itself must change.
 
 ## Cloud profiles (Supabase + Google sign-in)
 - Table `taste` (user_id uuid PK → auth.users, data jsonb, RLS own-row policies). The whole

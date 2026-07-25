@@ -42,7 +42,7 @@ own baselines, recomputed from the data:
 - **Gate 1 — significance floor:** `votes ≥ v_min`, where `v_min` is the 35th
   percentile of that language's vote distribution (clamped). A hyped film with too
   few votes *for its category* is rejected regardless of rating.
-- **Gate 2 — damped quality bar:** a Bayesian weighted rating must clear 6.5:
+- **Gate 2 — damped quality bar:** a Bayesian weighted rating must clear the threshold (5.5):
 
   ```
   WR = (v / (v + m))·R  +  (m / (v + m))·C
@@ -152,7 +152,7 @@ cards; filter with **Reviewed**, sort by **Viewer sentiment**). Then rebuild bro
 - **Weekly digest** (`run` / `digest`) is a tight, curated list — only films that clear
   their category's vote bar, grouped by language, for "what should I watch this week".
 - **Browse** (`browse`) is the opposite: an interactive, all-time catalog of every
-  good film (6.5+ with enough votes), with **filters** (language, OTT platform, year,
+  good film (5.5+ with enough votes), with **filters** (language, OTT platform, year,
   rating), **search**, and **sort** — for exploring. Open `out/browse.html`.
 
 ```
