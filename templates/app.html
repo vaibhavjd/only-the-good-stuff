@@ -30,7 +30,16 @@ h2 .cnt{color:var(--faint);font-size:14px;font-family:"Segoe UI",system-ui,sans-
 .gper{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0 0 22px;padding:11px 14px;
   background:var(--accent-soft);border-radius:11px;text-align:left}
 .gper b{color:var(--accent);font-weight:600}
+.gwelcome{color:var(--ink);font-size:15px;margin:0 0 18px}
+.gwelcome b{color:var(--accent)}
 .gfoot{color:var(--faint);font-size:12px;margin:16px 0 0}
+/* back-to-top: visibility (not [hidden]) so the fade can animate */
+.totop{position:fixed;right:18px;bottom:24px;z-index:40;width:44px;height:44px;border-radius:999px;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-size:19px;line-height:1;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 6px 22px rgba(0,0,0,.18);
+  opacity:0;visibility:hidden;transform:translateY(10px);transition:opacity .18s,transform .18s,visibility .18s}
+.totop.show{opacity:1;visibility:visible;transform:none}
+.totop:hover{border-color:var(--accent);color:var(--accent)}
 /* credit */
 .cred{color:var(--faint);font-size:11.5px;letter-spacing:.02em;margin:14px 0 0}
 .cred b{color:var(--accent);font-weight:600}
@@ -188,19 +197,23 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
   #drawer{top:auto;left:0;right:0;width:100%;max-width:100%;max-height:88vh;border-radius:18px 18px 0 0;
     transform:translateY(102%);transition:transform .26s cubic-bezier(.32,.72,0,1)}
   #drawer.open{transform:none}
+  .totop{bottom:76px;right:14px;width:42px;height:42px}   /* clear the fixed bottom tab bar */
 }
 </style></head><body>
 
 <!-- ============ welcome gate ============ -->
 <div id="gate" hidden>
   <div class="gcard">
-    <div class="eyebrow">Your weekly watchlist</div>
+    <div class="eyebrow" id="gEyebrow">Your weekly watchlist</div>
     <h1>Only the good stuff!</h1>
+    <p class="gwelcome" id="gWelcome" hidden></p>
     <p class="gsub">Genuinely good movies and shows &mdash; Indian and international &mdash; judged against each category&rsquo;s own bar, with where to stream them in India.</p>
     <p class="gper">Then it learns you. Tell us your languages and streaming apps, <b>Like</b> what you enjoy and mark what&rsquo;s <b>Not for me</b> &mdash; every visit re-ranks around your taste, and pushes what you can actually stream tonight to the top.</p>
     <button type="button" id="gGoogle" class="btn primary google"><svg class="gg" viewBox="0 0 18 18" aria-hidden="true"><path fill="#fff" d="M17.6 9.2c0-.6-.05-1.18-.15-1.74H9v3.3h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.56 2.66-3.86 2.66-6.54z" opacity=".0"/><path fill="#4285F4" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.58-5.05-3.72H.94v2.34A9 9 0 0 0 9 18z" transform="translate(0)"/><path fill="#fff" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .94 5l3.01 2.34C4.66 5.16 6.65 3.58 9 3.58z" opacity="0"/></svg><span>Sign in with Google</span></button>
     <button type="button" id="gGuest" class="btn">Continue as guest</button>
-    <p class="gfoot">Sign in to save your likes and picks to your account, on every device. Guest picks stay in this browser only.</p>
+    <button type="button" id="gBrowse" class="btn primary" hidden>Browse the good stuff</button>
+    <button type="button" id="gNotYou" class="btn" hidden>Not you? Sign out</button>
+    <p class="gfoot" id="gfoot">Sign in to save your likes and picks to your account, on every device. Guest picks stay in this browser only.</p>
     <p class="cred">Made in India by <b>Vaibhav Deshpande</b></p>
   </div>
 </div>
@@ -301,6 +314,8 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
     <div id="disEmpty" class="empty" hidden>Titles you mark &ldquo;Not for me&rdquo; collect here, and get ranked down in Browse.</div>
   </div>
 
+  <button type="button" id="toTop" class="totop" aria-label="Scroll back to top" title="Back to top">&uarr;</button>
+
   <footer>
   <p class="cred">Made in India by <b>Vaibhav Deshpande</b> &mdash; because scrolling four apps to find one good film isn&rsquo;t a plan.</p>
   Your likes, saves &amp; seen stay private &mdash; in this browser as a guest, or in your account when signed in.
@@ -371,8 +386,10 @@ async function cloudLogin(user){
   U=mergeData(mergeData(cache,guest),cloud);
   /* adopted once: clear it, or the next new account on this device inherits the same guest taste */
   if(guest)try{localStorage.removeItem("mf_data_"+GUEST);}catch(e){}
-  saveU();enterApp();}
-function cloudLogout(){CLOUD=null;
+  saveU();
+  /* resuming after a long break: greet at the gate instead of dropping into the list */
+  if(RESUME_GATE){renderAuthUI();showGate();}else enterApp();}
+function cloudLogout(){CLOUD=null;RESUME_GATE=false;   /* a later sign-in should enter the app, not re-greet */
   try{localStorage.removeItem("mf_guest");}catch(e){}  /* sign-out always lands back on the welcome gate */
   U=shape(lget(dkey(),null));
   resetStates();renderAuthUI();computeTaste();updateSummary();showGate();}
@@ -655,10 +672,17 @@ function renderView(){
   $("#toolbar").hidden=isList;$("#achips").hidden=isList;$("#rw").hidden=isList;
   $("#kindsel").hidden=isList;
   $("#grid").hidden=isList;$("#mylist").hidden=!isList;$("#subline").hidden=isList;
-  if(isList){$("#note").hidden=true;$("#empty").hidden=true;renderMyList();return;}
-  syncToolbar();syncKind();renderRW();renderPanel();apply();}
+  if(isList){$("#note").hidden=true;$("#empty").hidden=true;renderMyList();syncToTop();return;}
+  syncToolbar();syncKind();renderRW();renderPanel();apply();syncToTop();}
 
-function setTab(t){if(!t||t===TAB)return;TAB=t;if(fOpen)closeDrawer();renderView();}
+/* each tab keeps its own scroll position — switching used to carry the offset across */
+const SCROLL={browse:0,list:0};
+function setTab(t){if(!t||t===TAB)return;
+  SCROLL[TAB]=window.scrollY;
+  TAB=t;if(fOpen)closeDrawer();renderView();
+  const y=SCROLL[t]||0;                      /* rAF pass: the grid has just been re-rendered */
+  window.scrollTo(0,y);requestAnimationFrame(()=>{window.scrollTo(0,y);syncToTop();});}
+function syncToTop(){const b=$("#toTop");if(b)b.classList.toggle("show",window.scrollY>600);}
 function updateSummary(){
   const nl=Object.keys(U.like).length,ns=Object.keys(U.seen).length,nv=Object.keys(U.save).length;
   $("#tastesum").textContent=nl?(nl+" liked · "+ns+" seen · "+nv+" saved")
@@ -673,10 +697,30 @@ function closeDrawer(){fOpen=false;$("#backdrop").classList.remove("open");$("#d
   $("#fbtn").setAttribute("aria-expanded","false");document.body.style.overflow="";
   setTimeout(()=>{if(!fOpen){$("#backdrop").hidden=true;$("#drawer").hidden=true;}},280);}
 
+/* ================= idle / resume ================= */
+/* Away (or idle) for over an hour: come back to the gate rather than mid-list. */
+const IDLE_MS=3600000;
+let lastTouch=0;
+function touchSeen(){lastTouch=Date.now();lset("mf_seen_at",lastTouch);}
+function idleTooLong(){const t=+lget("mf_seen_at",0);return t>0&&(Date.now()-t)>IDLE_MS;}
+function bumpSeen(){if(Date.now()-lastTouch>30000)touchSeen();}   /* throttle the writes */
+let RESUME_GATE=idleTooLong();
+function resumeCheck(){if(document.hidden||!RESUME_GATE&&!idleTooLong())return false;
+  RESUME_GATE=true;showGate();return true;}
+
 /* ================= welcome gate + onboarding ================= */
-function gateNeeded(){return !CLOUD&&!lget("mf_guest",0);}
-function showGate(){$("#gate").hidden=false;$("#app").hidden=true;$("#ob").hidden=true;$("#gGoogle").hidden=!sb;}
-function enterApp(){$("#gate").hidden=true;$("#app").hidden=false;
+function gateNeeded(){return RESUME_GATE||(!CLOUD&&!lget("mf_guest",0));}
+function showGate(){$("#gate").hidden=false;$("#app").hidden=true;$("#ob").hidden=true;
+  /* signed-in returner: greet them and offer one button instead of the sign-in pitch */
+  const back=RESUME_GATE&&!!CLOUD;
+  $("#gWelcome").hidden=!back;
+  if(back)$("#gWelcome").innerHTML="Welcome back, <b>"+esc(CLOUD.name||CLOUD.email||"you")+"</b> &mdash; you&rsquo;re still signed in.";
+  $("#gEyebrow").textContent=back?"Picking up where you left off":"Your weekly watchlist";
+  $("#gBrowse").hidden=!back;$("#gNotYou").hidden=!back;
+  $("#gGoogle").hidden=back||!sb;$("#gGuest").hidden=back;
+  $("#gfoot").hidden=back;$(".gper").hidden=back;}
+function enterApp(){RESUME_GATE=false;touchSeen();
+  $("#gate").hidden=true;$("#app").hidden=false;
   renderAuthUI();computeTaste();updateSummary();
   applyPrefDefaults();renderView();maybeOnboard();}
 
@@ -705,6 +749,8 @@ function finishOnboard(save){
 $("#gGoogle").addEventListener("click",()=>{if(!sb)return;
   sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});});
 $("#gGuest").addEventListener("click",()=>{lset("mf_guest",1);enterApp();});
+$("#gBrowse").addEventListener("click",enterApp);
+$("#gNotYou").addEventListener("click",()=>{(async()=>{try{if(sb)await sb.auth.signOut();}catch(e){}cloudLogout();})();});
 
 $("#ob").addEventListener("click",e=>{
   const t=e.target.closest("button");if(!t)return;
@@ -752,6 +798,7 @@ $("#app").addEventListener("click",e=>{
   if(t.dataset.fk){removeFilter(t.dataset.fk,t.dataset.fv);return;}
   if(t.dataset.k==="year"){yearChip(curSt(),t.dataset.v);return;}
   if(t.dataset.k){panelChip(t);return;}
+  if(t.id==="toTop"){window.scrollTo({top:0,behavior:"smooth"});return;}
   if(t.id==="gprefs"){renderOnboard();$("#ob").hidden=false;return;}
   if(t.id==="gsin"){if(sb)sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});return;}
   if(t.id==="gsout"){(async()=>{try{await sb.auth.signOut();}catch(e){}cloudLogout();})();return;}});
@@ -765,6 +812,15 @@ $("#drawer").addEventListener("click",e=>{
   if(t.dataset.k){panelChip(t);return;}});
 $("#backdrop").addEventListener("click",closeDrawer);
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&fOpen)closeDrawer();});
+
+/* scroll: back-to-top affordance + activity heartbeat for the idle gate */
+window.addEventListener("scroll",()=>{syncToTop();bumpSeen();},{passive:true});
+["click","keydown","pointerdown"].forEach(ev=>document.addEventListener(ev,bumpSeen,{passive:true}));
+window.addEventListener("pagehide",touchSeen);
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){touchSeen();return;}
+  if(!resumeCheck())touchSeen();});          /* back on screen: gate if the break was long */
+setInterval(resumeCheck,60000);              /* also catches idling with the tab left open */
 
 /* inputs (search, sliders, custom year) — bubbles from app + drawer */
 document.addEventListener("input",e=>{
@@ -794,7 +850,8 @@ if(sb){
 /* test hooks (harmless in production) */
 if(typeof window!=="undefined")window.MF={presetRange,mergeData,passes,compute,SORT,ST,BASE,COUNTS,TITLES,
   setTab,setKind,apply,freshState,finishOnboard,enterApp,activeFilters,years,gateNeeded,openDrawer,closeDrawer,
-  renderMyList,computeTaste,U:()=>U,TAB:()=>TAB};
+  renderMyList,computeTaste,showGate,touchSeen,idleTooLong,resumeCheck,syncToTop,SCROLL,IDLE_MS,
+  U:()=>U,TAB:()=>TAB,RESUME:()=>RESUME_GATE};
 
 /* ================= boot ================= */
 renderAuthUI();

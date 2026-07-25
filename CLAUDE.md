@@ -25,6 +25,14 @@ maps each to Indian OTT availability, adds review sentiment, and personalises pe
     it's a view, not a filter.
   - My List has 4 sections (Liked / Saved / Seen / Not for me), driven by one table in
     `renderMyList` keyed off `U.{like,save,seen,dislike}`.
+  - **Each tab keeps its own scroll offset** (`SCROLL` map in `setTab`). Document scroll used to
+    be shared, so scrolling to the bottom of My List and switching landed you at the bottom of
+    Browse. Restore needs the `requestAnimationFrame` second pass — the grid is re-rendered
+    synchronously just before, so a single `scrollTo` lands before layout settles.
+  - **Back-to-top** (`#toTop`, shows past 600px). Toggled by a `.show` class, NOT the `hidden`
+    attribute — `[hidden]{display:none!important}` would kill the fade, so it animates
+    opacity/visibility instead. On <760px it sits at `bottom:76px` to clear the fixed bottom tab
+    bar; at the default 24px it overlapped the tabs.
 - `out/` (gitignored) — generated: `index.html` (app shell), `data.js`
   (`window.MF_DATA={built,threshold,titles:[…]}`), redirect stubs `browse.html` /
   `digest-latest.html` → index.html, `.nojekyll`.
@@ -106,7 +114,21 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
   once adopted. An account that already HAS a cloud row still (correctly) ignores guest data.
 - **Sign-out returns to the welcome gate.** `cloudLogout` clears the `mf_guest` flag before calling
   `showGate()` — without that, anyone who had ever tapped "Continue as guest" was dropped straight
-  back into the app as a guest instead of the login screen.
+  back into the app as a guest instead of the login screen. It also clears `RESUME_GATE`, so a
+  later sign-in enters the app rather than re-greeting.
+- **Idle resume (added 2026-07-25):** away or idle for over `IDLE_MS` (1h) → come back to the gate,
+  not mid-list. `mf_seen_at` is stamped on `pagehide`, on `visibilitychange`→hidden, and by a
+  30s-throttled `bumpSeen` on click/keydown/scroll; `RESUME_GATE` is computed once at boot from
+  `idleTooLong()` and `gateNeeded()` ORs it in. A 60s `setInterval(resumeCheck)` also catches
+  idling with the tab left open (no visibilitychange fires in that case).
+  - Signed-in returners get a different gate: `showGate()` swaps in `#gWelcome` ("Welcome back,
+    <name>"), a **Browse** CTA and **Not you? Sign out**, and hides the sign-in pitch + `.gper`
+    panel. Guests get the normal gate. Because the Supabase session resolves *after* boot,
+    `cloudLogin` must check `RESUME_GATE` and call `showGate()` instead of `enterApp()`.
+  - **Testing gotcha:** you cannot arm a stale `mf_seen_at` and then reload the app page — the
+    `pagehide` handler overwrites it with "now" on the way out, so the reload always looks fresh.
+    Stage the stale value from a page with no listeners (e.g. a 404 on the same origin), then
+    navigate in.
 - `mergeData` is local-wins for `{like,dislike,seen,save}` but **newest-wins for `prefs`** via a
   `prefs.at` stamp — local-wins there meant a stale cached copy on device 1 would overwrite prefs
   edited on device 2 and push the stale version back up. Legacy prefs with no `.at` fall back to

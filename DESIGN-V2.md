@@ -57,9 +57,14 @@ window.MF_DATA = {
 Data loads via `<script src="data.js"></script>` placed before the main app script.
 
 ## User flow (frontend)
-1. **Welcome gate** (shown when: no Supabase session AND no `mf_guest=1` in localStorage).
-   Brand + one-line pitch + two buttons: **Sign in with Google** (primary; hidden if
-   Supabase unconfigured) and **Continue as guest**. No content visible behind it.
+1. **Welcome gate** (shown when: no Supabase session AND no `mf_guest=1` in localStorage,
+   **or** the user has been away/idle over an hour). Brand + one-line pitch + a panel explaining
+   that picks personalise from your activity + two buttons: **Sign in with Google** (primary;
+   hidden if Supabase unconfigured) and **Continue as guest**. No content visible behind it.
+   - **Resuming after >1h** the gate changes for a signed-in user: "Welcome back, <name> — you're
+     still signed in", a **Browse** CTA and **Not you? Sign out**, with the sign-in pitch hidden.
+     A guest just gets the normal gate. Rationale: coming back to a stale mid-list scroll position
+     is disorienting; the gate re-orients and confirms who you're signed in as.
 2. **Onboarding** (first run per profile: no `mf_onboarded`): two quick steps —
    (a) pick languages you watch (chips, multi); (b) pick OTT platforms you have
    (chips from the catalog's top providers). Skippable. Stored per profile (cloud
@@ -76,6 +81,8 @@ Data loads via `<script src="data.js"></script>` placed before the main app scri
      The user's languages **rank** rather than filter — see CLAUDE.md § Personalisation.
    - **My List**: four sections — **Liked · Saved · Seen · Not for me** — each with a count
      and per-card remove control.
+   - Both tabs keep **independent scroll positions**, and a floating **back-to-top** button
+     appears past 600px (offset above the bottom tab bar on mobile).
 4. Profile bar: guest profiles (dropdown + New/Rename/Delete) or "Syncing as <name>"
    + Sign out — port the existing v1 logic (localStorage guest, Supabase cloud sync,
    merge on login, like-beats-dislike).
