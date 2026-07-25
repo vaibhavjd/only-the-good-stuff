@@ -83,6 +83,10 @@ Data loads via `<script src="data.js"></script>` placed before the main app scri
      and per-card remove control.
    - Both tabs keep **independent scroll positions**, and a floating **back-to-top** button
      appears past 600px (offset above the bottom tab bar on mobile).
+   - The **site name in the header is clickable** → Browse tab, search cleared, scrolled to top.
+   - **Search is not scoped by the release window.** Typing a query searches all years (every
+     other filter still applies); the window strip dims and the subline says so. Without this the
+     `l2` default hid ~97% of the catalog from search.
 4. Profile bar: guest profiles (dropdown + New/Rename/Delete) or "Syncing as <name>"
    + Sign out — port the existing v1 logic (localStorage guest, Supabase cloud sync,
    merge on login, like-beats-dislike).

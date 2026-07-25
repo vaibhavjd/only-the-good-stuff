@@ -4,6 +4,15 @@ A weekly, quality-gated movie **and** TV-show discovery web app for India. Surfa
 quality titles (5.5+ IMDb — lowered from 6.5 on 2026-07-18 — judged against per-language×kind vote baselines),
 maps each to Indian OTT availability, adds review sentiment, and personalises per user.
 
+> **Catalog size (changed 2026-07-25):** the caps in `catalog_rows` used to bind hard — 6000 movies
+> `ORDER BY rating DESC` against ~27k qualifying, so the real movie floor was **6.6** while the UI
+> claimed 5.5 (lowering the threshold 6.5→5.5 had almost no effect on movies for this reason).
+> Caps are now safety valves (`browse_cap` 40000 / `shows_cap` 20000) and `rating_threshold` is the
+> actual gate, so the catalog is ~**38.9k titles** (26.8k movies + 12.0k shows) and ~19 MB of
+> `data.js`. Both kinds now use the same `ORDER BY avg_rating DESC` — shows used to order by
+> `num_votes`, giving the two halves different effective floors. `catalog_rows` logs a WARNING if a
+> cap ever binds again.
+
 - **Live site:** https://vaibhavjd.github.io/only-the-good-stuff/
 - **Repo:** https://github.com/vaibhavjd/only-the-good-stuff (public, owner's PERSONAL account `vaibhavjd`)
 - **Product name:** "Only the good stuff!" (was "Movie Finder" — do not reintroduce that name in UI)
@@ -29,6 +38,16 @@ maps each to Indian OTT availability, adds review sentiment, and personalises pe
     be shared, so scrolling to the bottom of My List and switching landed you at the bottom of
     Browse. Restore needs the `requestAnimationFrame` second pass — the grid is re-rendered
     synchronously just before, so a single `scrollTo` lands before layout settles.
+  - **Search ignores the release window** (`passes()` skips the year test when `st.q` is set).
+    Browse defaults to `l2`, which was hiding ~97% of the catalog from search — searching a 2021
+    film returned nothing. Every other filter still applies; only the year window is bypassed.
+    The subline switches to "N results for … · searching all years" and `#rw` gets `.muted`, so the
+    still-highlighted window chip doesn't imply it's filtering.
+  - **`rawOf()` memoises `raw()`** per title, cleared in `computeTaste()`. The `foryou` comparator
+    is called O(n log n) times and `raw()` walks each title's genres; at ~39k titles that was
+    millions of recomputes per keystroke. Measured at production scale: 57ms warm sort, 7ms filter.
+  - **Site name is a `<button id="homeLink">`** inside the `h1` → `goHome()`: Browse tab, search
+    cleared, scrolled to top. Kept as a button (not an anchor) so it doesn't touch the URL.
   - **Back-to-top** (`#toTop`, shows past 600px). Toggled by a `.show` class, NOT the `hidden`
     attribute — `[hidden]{display:none!important}` would kill the fade, so it animates
     opacity/visibility instead. On <760px it sits at `bottom:76px` to clear the fixed bottom tab
@@ -56,8 +75,12 @@ First full build ~40-60 min cold (TMDB cache `tmdb_cache3` empty); `browse` reus
 ## Deployment
 - GitHub Actions `.github/workflows/weekly.yml`: Fri 02:30 UTC (~08:00 IST) + manual dispatch.
   Writes config.json from secrets, curls the previous live `data.js` (→ prev-data.js) so NEW
-  badges diff week-over-week, runs `site`, sanity-checks (index.html has MF_DATA + data.js ≥1000
-  titles), pings Supabase keepalive, deploys to Pages.
+  badges diff week-over-week, runs `site`, sanity-checks, pings Supabase keepalive, deploys to Pages.
+  - The title floor is **25000** (was 1000). A failed TMDB lookup silently drops that title
+    (`build_catalog` skips recs with no `lang`), so a throttled run can emit a valid-but-gutted
+    catalog; at ~38.9k expected, a 1000 floor would have deployed it over a good one.
+  - `timeout-minutes: 300`. The build is ~39k TMDB enrichments now — budget well over the old
+    ~12 min. `tmdb_get` retries 429s twice with a 1.5s backoff, which is the main throttling defence.
 - **Repo secrets** (set in repo Settings, NOT committed): `TMDB_BEARER`, `SUPABASE_URL`,
   `SUPABASE_ANON_KEY`.
 - **Pushing / the token dance** (IMPORTANT): `gh` CLI on this machine is logged into the owner's

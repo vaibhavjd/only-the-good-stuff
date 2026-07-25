@@ -16,6 +16,8 @@ button{font:inherit}
 .wrap{max-width:1180px;margin:0 auto;padding:18px 18px 84px}
 .eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
 h1{font-family:Georgia,serif;font-size:27px;margin:5px 0 4px}
+.homelink{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.homelink:hover{color:var(--accent)}
 h2{font-family:Georgia,serif;font-size:20px;margin:22px 0 10px}
 h2 .cnt{color:var(--faint);font-size:14px;font-family:"Segoe UI",system-ui,sans-serif;font-weight:400}
 .sub{color:var(--muted);margin:0 0 8px;font-size:13px}
@@ -81,7 +83,8 @@ footer .cred{margin:0 0 6px;font-size:12px}
 .segb:hover{color:var(--ink)}
 .segb.on{background:var(--accent);color:#fff;font-weight:600}
 /* release-window strip (always visible on the Browse tab) */
-.rw{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 9px}
+.rw{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 9px;transition:opacity .15s}
+.rw.muted{opacity:.4}   /* a search ignores the window; don't imply it's still filtering */
 .rwl{color:var(--faint);font-size:11.5px;font-weight:600;letter-spacing:.03em;margin-right:1px}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
 .chip{border:1px solid var(--line);background:var(--chipbg);color:var(--muted);border-radius:999px;padding:5px 11px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s}
@@ -255,7 +258,7 @@ footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-si
 <div class="wrap">
   <header>
     <div class="eyebrow">Updated __BUILT__</div>
-    <h1>Only the good stuff!</h1>
+    <h1><button type="button" id="homeLink" class="homelink" title="Back to Browse">Only the good stuff!</button></h1>
     <p class="sub" id="subline"><b id="count">0</b> of <span id="total">0</span> titles &middot; __THRESH__+ IMDb, judged against each category&rsquo;s own vote baseline</p>
   </header>
 
@@ -410,14 +413,19 @@ function computeTaste(){
   Object.keys(U.dislike).forEach(t=>{if(BYID[t])bump(BYID[t],-1.2);});
   Object.keys(U.save||{}).forEach(t=>{if(BYID[t]&&!U.like[t]&&!U.dislike[t])bump(BYID[t],0.5);}); /* a save = interest */
   norm(taste.g);norm(taste.l);norm(taste.d);
+  RAWC.clear();   /* taste moved, so every cached score is stale */
 }
+/* raw() walks each title's genres and the sort calls it O(n log n) times; at ~39k titles
+   that was re-computing millions of times per keystroke. Cache per title, per taste. */
+let RAWC=new Map();
+function rawOf(f){let v=RAWC.get(f.t);if(v===undefined){v=raw(f);RAWC.set(f.t,v);}return v;}
 function hasTaste(){return Object.keys(U.like).length>0||Object.keys(U.save||{}).length>0;}
 /* enough to rank by (match % still needs real likes — onboarding picks alone shouldn't claim a score) */
 function hasSignal(){return hasTaste()||prefLangs().length>0||prefPlats().length>0;}
 function raw(f){let s=0;const g=f.g||[];
   if(g.length){let t=0;g.forEach(x=>{t+=(taste.g[x]||0);});s+=t/g.length;}
   s+=1.3*(taste.l[f.l]||0);const dc=Math.floor((f.y||0)/10)*10;s+=0.4*(taste.d[dc]||0);return s;}
-function matchPct(f){if(!hasTaste())return null;return Math.round(100/(1+Math.exp(-1.5*raw(f))));}
+function matchPct(f){if(!hasTaste())return null;return Math.round(100/(1+Math.exp(-1.5*rawOf(f))));}
 function matchWhy(f){let best=null,bv=0;(f.g||[]).forEach(g=>{if((taste.g[g]||0)>bv){bv=taste.g[g];best=g;}});
   return best?("matches your taste for "+best):"based on your likes";}
 function platBoost(f){const P=prefPlats();if(!P.length)return 0;
@@ -458,9 +466,13 @@ function passes(f,st,u){
   if(q&&String(f.n||"").toLowerCase().indexOf(q)<0)return false;
   if((f.r||0)<st.minR)return false;
   if(st.minTR>0&&(!f.tr||f.tr<st.minTR))return false;
-  const rg=stRange(st),lo=rg[0],hi=rg[1];
-  const end=f.k==="s"?(f.y2==null?9999:f.y2):(f.y||0);   /* series overlap the range; ongoing = open-ended */
-  if(!((f.y||0)<=hi&&end>=lo))return false;
+  /* Searching by name looks across ALL years. The release window is a browsing tool, and its
+     2-year default was hiding ~97% of the catalog from search — you could not find a 2021 film. */
+  if(!q){
+    const rg=stRange(st),lo=rg[0],hi=rg[1];
+    const end=f.k==="s"?(f.y2==null?9999:f.y2):(f.y||0); /* series overlap the range; ongoing = open-ended */
+    if(!((f.y||0)<=hi&&end>=lo))return false;
+  }
   if(st.streamOnly&&!(f.s&&f.s.length))return false;
   if(st.indianOnly&&f.mk!=="indian")return false;
   if(st.savedOnly&&!u.save[f.t])return false;
@@ -475,7 +487,7 @@ const SORT={
   rating:(a,b)=>b.r-a.r||b.v-a.v,
   newest:(a,b)=>b.y-a.y||b.r-a.r,
   oldest:(a,b)=>a.y-b.y||b.r-a.r,
-  foryou:(a,b)=>raw(b)-raw(a)||b.r-a.r,
+  foryou:(a,b)=>rawOf(b)-rawOf(a)||b.r-a.r,
   sen:(a,b)=>((b.se?b.se.ts:-1)-(a.se?a.se.ts:-1))||b.r-a.r,
   votes:(a,b)=>b.v-a.v||b.r-a.r,
   gems:(a,b)=>b.p-a.p||b.r-a.r
@@ -485,7 +497,7 @@ function cmpFor(st){
   const pq=f=>0.6*platBoost(f)-3*seenP(f);   /* on your OTTs lifts, already-watched sinks */
   if(st.sort==="rating"){const wq=f=>0.4*platBoost(f)+0.3*newB(f)-3*seenP(f);
     return (a,b)=>((b.r+wq(b))-(a.r+wq(a)))||b.v-a.v;}
-  if(st.sort==="foryou")return (a,b)=>((raw(b)+pq(b)+0.3*newB(b))-(raw(a)+pq(a)+0.3*newB(a)))||b.r-a.r;
+  if(st.sort==="foryou")return (a,b)=>((rawOf(b)+pq(b)+0.3*newB(b))-(rawOf(a)+pq(a)+0.3*newB(a)))||b.r-a.r;
   return SORT[st.sort]||SORT.rating;
 }
 function compute(){const st=curSt();
@@ -608,7 +620,12 @@ function fpanelHtml(kind,st){
 function renderPanel(){if(TAB==="list")return;const st=curSt();$("#dbody").innerHTML=fpanelHtml(st.kind,st);}
 function renderRW(){const w=$("#rw");
   if(TAB==="list"){w.innerHTML="";return;}
-  w.innerHTML=`<span class="rwl">RELEASE WINDOW</span>`+yearChips(curSt());}
+  w.innerHTML=`<span class="rwl">RELEASE WINDOW</span>`+yearChips(curSt());syncRW();}
+function syncRW(){const w=$("#rw");if(w)w.classList.toggle("muted",!!curSt().q.trim());}
+/* clicking the site name = back to Browse, top of list, search cleared */
+function goHome(){curSt().q="";SCROLL.browse=0;
+  if(TAB!=="browse")setTab("browse");else{syncToolbar();syncRW();apply();}
+  window.scrollTo(0,0);syncToTop();}
 function syncYearChips(){const st=curSt();
   [$("#fYear"),$("#rw")].forEach(c=>{if(!c||!c.querySelectorAll)return;
     c.querySelectorAll(".chip").forEach(ch=>{const on=ch.dataset.v===st.ypreset;
@@ -632,6 +649,10 @@ function renderAchips(st){
 
 const CAP=400;
 function updateSubline(n){const s=$("#subline");if(!s)return;
+  const q=curSt().q.trim();
+  if(q){   /* say so, because the release-window strip still shows a window that isn't applying */
+    s.innerHTML="<b>"+n+"</b> result"+(n===1?"":"s")+" for &ldquo;"+esc(q)+"&rdquo; &middot; searching all years";
+    return;}
   if(hasTaste()){
     const nl=Object.keys(U.like).length,nsv=Object.keys(U.save||{}).length;
     const from=nl?(nl+" like"+(nl===1?"":"s")+(nsv?(" & "+nsv+" saved"):"")):(nsv+" saved");
@@ -798,6 +819,7 @@ $("#app").addEventListener("click",e=>{
   if(t.dataset.fk){removeFilter(t.dataset.fk,t.dataset.fv);return;}
   if(t.dataset.k==="year"){yearChip(curSt(),t.dataset.v);return;}
   if(t.dataset.k){panelChip(t);return;}
+  if(t.id==="homeLink"){goHome();return;}
   if(t.id==="toTop"){window.scrollTo({top:0,behavior:"smooth"});return;}
   if(t.id==="gprefs"){renderOnboard();$("#ob").hidden=false;return;}
   if(t.id==="gsin"){if(sb)sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});return;}
@@ -825,7 +847,7 @@ setInterval(resumeCheck,60000);              /* also catches idling with the tab
 /* inputs (search, sliders, custom year) — bubbles from app + drawer */
 document.addEventListener("input",e=>{
   const el=e.target,st=TAB==="list"?null:curSt();if(!st)return;
-  if(el.id==="q"){st.q=el.value;apply();}
+  if(el.id==="q"){st.q=el.value;syncRW();apply();}
   else if(el.id==="minR"){st.minR=+el.value;const v=$("#minRv");if(v)v.textContent=(+el.value).toFixed(1);renderAchips(st);apply();}
   else if(el.id==="minTR"){st.minTR=+el.value;const v=$("#minTRv");if(v)v.textContent=st.minTR?st.minTR.toFixed(1):"any";renderAchips(st);apply();}
   else if(el.id==="ymin"||el.id==="ymax"){st.ypreset="custom";

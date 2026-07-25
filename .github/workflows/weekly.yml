@@ -18,6 +18,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # ~39k TMDB enrichments since the catalog stopped being capped; well under this, but
+    # explicit so a hung run fails in hours rather than burning the 6h default.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +73,10 @@ jobs:
           grep -q 'MF_DATA' out/index.html || { echo "index.html is the placeholder page - templates/app.html missing?"; exit 1; }
           titles=$(grep -o '"t":' out/data.js | wc -l)
           echo "data.js titles: $titles"
-          test "$titles" -ge 1000
+          # A TMDB lookup failure silently drops that title, so a throttled run can still
+          # produce a valid-but-gutted catalog. ~38.9k are expected; anything under 25k
+          # means enrichment fell over and must not be deployed over a good catalog.
+          test "$titles" -ge 25000 || { echo "catalog is short ($titles < 25000) - refusing to deploy"; exit 1; }
           echo "build looks good"
 
       - uses: actions/configure-pages@v5

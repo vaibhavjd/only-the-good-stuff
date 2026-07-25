@@ -104,10 +104,13 @@ DEFAULTS = {
     "enrich_limit": 60,        # (no-key/display path) top titles to look up on TMDB
     "pool_floor": 150,         # (TMDB gate) min IMDb votes to enter the candidate pool
     "pool_cap": 500,           # (TMDB gate) max pool titles to enrich per run
+    # Caps are a SAFETY VALVE, not the filter. They used to bind hard (6000 movies vs ~27k
+    # qualifying), so `ORDER BY rating DESC LIMIT` set the real floor at ~6.6 while the UI
+    # claimed 5.5. Keep them well above the qualifying counts so rating_threshold is the gate.
     "browse_vote_floor": 2000, # (catalog) min IMDb votes for a movie to enter the app catalog
-    "browse_cap": 6000,        # (catalog) max movies in the app catalog
+    "browse_cap": 40000,       # (catalog) headroom over ~27k qualifying movies
     "shows_vote_floor": 1000,  # (catalog) min IMDb votes for a TV show to enter the app catalog
-    "shows_cap": 2500,         # (catalog) max TV shows in the app catalog
+    "shows_cap": 20000,        # (catalog) headroom over ~12k qualifying shows
     "browse_workers": 8,       # concurrent TMDB lookups when building the catalog
     "sentiment_cap": 1500,     # (sentiment) how many top-voted films to fetch reviews for
     "sentiment_reviews": 25,   # (sentiment) max reviews analyzed per film
@@ -1317,14 +1320,21 @@ def catalog_rows(con, cfg):
     cols = ("SELECT t.tconst, t.primary_title, t.original_title, t.kind, t.start_year, "
             "t.end_year, t.genres, r.avg_rating, r.num_votes "
             "FROM titles t JOIN ratings r ON r.tconst = t.tconst ")
+    # Both kinds use the SAME gate and the same ordering. Shows used to order by num_votes,
+    # so the two halves of the catalog had different effective floors (movies ~6.6 by rating
+    # rank, shows 5.5 by votes). Rating-first also means that if a cap ever does bind, it
+    # drops the weakest titles rather than the least popular ones.
+    order = "ORDER BY r.avg_rating DESC, r.num_votes DESC LIMIT ?"
     movies = con.execute(
-        cols + "WHERE t.kind='m' AND r.avg_rating >= ? AND r.num_votes >= ? "
-        "ORDER BY r.avg_rating DESC, r.num_votes DESC LIMIT ?",
+        cols + "WHERE t.kind='m' AND r.avg_rating >= ? AND r.num_votes >= ? " + order,
         (cfg["rating_threshold"], cfg["browse_vote_floor"], cfg["browse_cap"])).fetchall()
     shows = con.execute(
-        cols + "WHERE t.kind='s' AND r.avg_rating >= ? AND r.num_votes >= ? "
-        "ORDER BY r.num_votes DESC, r.avg_rating DESC LIMIT ?",
+        cols + "WHERE t.kind='s' AND r.avg_rating >= ? AND r.num_votes >= ? " + order,
         (cfg["rating_threshold"], cfg["shows_vote_floor"], cfg["shows_cap"])).fetchall()
+    for label, sel, cap in (("movies", movies, cfg["browse_cap"]), ("shows", shows, cfg["shows_cap"])):
+        if len(sel) >= cap:
+            log(f"WARNING: {label} hit the {cap} cap — rating_threshold is no longer the real "
+                f"floor (lowest selected: {sel[-1][7]}). Raise the cap or the vote floor.")
     return movies + shows
 
 
